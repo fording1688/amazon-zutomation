@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from amazon_scraper import AmazonScraperError, fetch_amazon_rows
-from serpapi_amazon import SerpApiAmazonError, search_multiple_pages
+from serpapi_amazon import SerpApiAmazonError, enrich_rows_with_seller_info, search_display_page
 
 
 ROOT = Path(__file__).resolve().parent
@@ -65,25 +65,58 @@ def filter_rows(params):
     keyword = normalize_text(params.get("keyword"))
     data_source = params.get("data_source") or "serpapi"
     error_message = ""
+    page_size = to_int(params.get("page_size")) or 30
+    if page_size not in {30, 50}:
+        page_size = 30
+    pagination = {
+        "page": to_int(params.get("page")) or 1,
+        "page_size": page_size,
+        "total_results": 0,
+        "total_pages": 0,
+        "has_next": False,
+    }
 
     if data_source == "serpapi":
-        if not keyword:
+        selected_node = params.get("node") or params.get("category_node") or ""
+        selected_rh = params.get("rh") or ""
+        if not keyword and not selected_node and not selected_rh:
             rows = []
-            error_message = "SerpApi 搜索模式需要先输入关键词。"
+            error_message = "SerpApi 搜索模式需要输入关键词，或选择 Amazon 大类 / 自定义 node / rh。"
         else:
             try:
-                sort_map = {
-                    "rating": "review-rank",
-                    "reviews": "review-rank",
-                    "price": "price-asc-rank",
-                    "title": "relevanceblender",
-                    "sales": "exact-aware-popularity-rank",
-                }
-                rows = search_multiple_pages(
+                amazon_domain = params.get("amazon_domain") or "amazon.com"
+                language = params.get("language") or "en_US"
+                device = params.get("device") or "desktop"
+                page_payload = search_display_page(
                     keyword=keyword,
-                    pages=1,
-                    limit=to_int(params.get("limit")) or 20,
-                    sort=sort_map.get(params.get("sort_by") or "rating", "relevanceblender"),
+                    display_page=pagination["page"],
+                    page_size=page_size,
+                    sort=params.get("sort") or "relevanceblender",
+                    amazon_domain=amazon_domain,
+                    language=language,
+                    node=selected_node,
+                    rh=selected_rh,
+                    delivery_zip=params.get("delivery_zip") or "",
+                    shipping_location=params.get("shipping_location") or "",
+                    device=device,
+                    dc=params.get("dc") or "true",
+                )
+                rows = page_payload["rows"]
+                pagination.update({
+                    "page": page_payload["page"],
+                    "page_size": page_payload["page_size"],
+                    "total_results": page_payload["total_results"],
+                    "total_pages": page_payload["total_pages"],
+                    "has_next": page_payload["has_next"],
+                })
+                rows = enrich_rows_with_seller_info(
+                    rows,
+                    seller_region=params.get("seller_region") or "",
+                    seller_city=params.get("seller_city") or "",
+                    amazon_domain=amazon_domain,
+                    language=language,
+                    device=device,
+                    return_all_when_no_match=True,
                 )
             except SerpApiAmazonError as error:
                 rows = []
@@ -94,87 +127,47 @@ def filter_rows(params):
             error_message = "在线搜索模式需要先输入关键词。"
         else:
             try:
-                rows = fetch_amazon_rows(keyword=keyword, pages=1)
+                rows = fetch_amazon_rows(keyword=keyword, pages=1, limit=page_size)
             except AmazonScraperError as error:
                 rows = []
                 error_message = str(error)
     else:
         rows = read_rows()
+        filtered_demo = []
+        for row in rows:
+            if keyword and keyword not in normalize_text(row.get("title")):
+                continue
+            filtered_demo.append(row)
+        rows = filtered_demo[:page_size]
 
-    brand = normalize_text(params.get("brand"))
-    category = normalize_text(params.get("category"))
-    seller = normalize_text(params.get("seller"))
-    min_price = to_float(params.get("min_price"))
-    max_price = to_float(params.get("max_price"))
-    min_rating = to_float(params.get("min_rating"))
-    min_reviews = to_int(params.get("min_reviews"))
-    min_sales = to_int(params.get("min_sales"))
-    prime_only = params.get("prime_only") == "true"
-    sort_by = params.get("sort_by") or "rating"
-    descending = params.get("descending") == "true"
-    limit = to_int(params.get("limit"))
-
-    filtered = []
-    for row in rows:
-        if data_source != "serpapi" and keyword and keyword not in normalize_text(row.get("title")):
-            continue
-        if brand and brand != normalize_text(row.get("brand")):
-            continue
-        if category and category != normalize_text(row.get("category")):
-            continue
-        if seller and seller != normalize_text(row.get("seller")):
-            continue
-
-        price = to_float(row.get("price"))
-        if min_price is not None and (price is None or price < min_price):
-            continue
-        if max_price is not None and (price is None or price > max_price):
-            continue
-
-        rating = to_float(row.get("rating"))
-        if min_rating is not None and (rating is None or rating < min_rating):
-            continue
-
-        reviews = to_int(row.get("reviews"))
-        if min_reviews is not None and (reviews is None or reviews < min_reviews):
-            continue
-
-        sales = to_int(row.get("sales"))
-        if min_sales is not None and (sales is None or sales < min_sales):
-            continue
-
-        if prime_only and not is_prime(row.get("is_prime")):
-            continue
-
-        filtered.append(row)
-
-    def sort_key(row):
-        if sort_by in {"price", "rating", "reviews", "sales"}:
-            return to_float(row.get(sort_by)) or float("-inf")
-        return normalize_text(row.get(sort_by))
-
-    filtered.sort(key=sort_key, reverse=descending)
-    if limit is not None:
-        filtered = filtered[:limit]
+    seller_filter_applied = bool(params.get("seller_region") or params.get("seller_city"))
+    seller_filter_no_match = seller_filter_applied and any(
+        row.get("seller_filter_status") == "no_match" for row in rows
+    )
 
     summary = {
         "dataset_count": len(rows),
-        "count": len(filtered),
+        "count": 0 if seller_filter_no_match else len(rows),
+        "page": pagination["page"],
+        "page_size": pagination["page_size"],
+        "total_results": pagination["total_results"],
+        "total_pages": pagination["total_pages"],
+        "has_next": pagination["has_next"],
         "average_price": round(
-            sum(to_float(row.get("price")) or 0 for row in filtered) / len(filtered), 2
+            sum(to_float(row.get("price")) or 0 for row in rows) / len(rows), 2
         )
-        if filtered
+        if rows
         else 0,
         "average_rating": round(
-            sum(to_float(row.get("rating")) or 0 for row in filtered) / len(filtered), 2
+            sum(to_float(row.get("rating")) or 0 for row in rows) / len(rows), 2
         )
-        if filtered
+        if rows
         else 0,
         "prime_ratio": round(
-            sum(1 for row in filtered if is_prime(row.get("is_prime"))) / len(filtered) * 100,
+            sum(1 for row in rows if is_prime(row.get("is_prime"))) / len(rows) * 100,
             1,
         )
-        if filtered
+        if rows
         else 0,
         "data_source": {
             "serpapi": "SerpApi Amazon Search API",
@@ -183,6 +176,8 @@ def filter_rows(params):
         }.get(data_source, DATA_FILE.name),
         "mode": data_source,
         "error": error_message,
+        "seller_filter_applied": seller_filter_applied,
+        "seller_filter_no_match": seller_filter_no_match,
         "sample_keywords": [
             "earbuds",
             "laptop",
@@ -192,7 +187,7 @@ def filter_rows(params):
             "bottle",
         ],
     }
-    return {"summary": summary, "items": filtered}
+    return {"summary": summary, "items": rows}
 
 
 class AmazonProductHandler(SimpleHTTPRequestHandler):

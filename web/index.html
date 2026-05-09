@@ -3,108 +3,180 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Amazon Hunter</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <title>TradeHarbor 跨境生意操作台</title>
+    <link rel="stylesheet" href="/styles.css?v=20260509-6" />
   </head>
   <body>
     <div class="page-shell">
       <header class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Amazon Product Finder</p>
-          <h1>用 SerpApi 搜索 Amazon 商品，直接看到价格、评分和 ASIN</h1>
-          <p class="hero-text">
-            输入关键词后，本地后端会调用 SerpApi 的 Amazon Search API，再把标题、价格、Review、Rating、ASIN 和图片整理成表格。
-          </p>
+        <div class="brand-lockup" aria-label="TradeHarbor 品牌">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64" role="img">
+              <circle cx="32" cy="32" r="27" fill="none" stroke="currentColor" stroke-width="4" />
+              <path d="M18 35 32 14l14 21-14 15-14-15Z" fill="currentColor" opacity="0.95" />
+              <path d="M25 34h14M28 39h8" stroke="#fff8ec" stroke-width="3" stroke-linecap="round" />
+              <path d="M46 17c6 4 9 10 9 18" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" opacity="0.35" />
+            </svg>
+          </div>
+          <div>
+            <p class="brand-kicker">TradeHarbor</p>
+            <strong>跨境生意操作台</strong>
+          </div>
         </div>
-        <div class="hero-badge">
-          <span>Web Demo</span>
-          <strong>SerpApi</strong>
+
+        <div class="hero-main">
+          <div class="hero-copy">
+            <p class="eyebrow">Cross-Border Commerce OS</p>
+            <h1>把跨境选品、卖家分析和运营工具，收进一个工作台</h1>
+            <p class="hero-text">
+              从 Amazon 搜索开始，逐步沉淀你日常高频使用的跨境功能：选品抓取、卖家识别、类目筛选、数据导出和后续可收费的专业模块。
+            </p>
+            <div class="hero-tags" aria-label="系统模块">
+              <span>Amazon 搜索</span>
+              <span>卖家分析</span>
+              <span>数据工作流</span>
+            </div>
+          </div>
+
+          <aside class="hero-badge">
+            <span>Workspace Beta</span>
+            <strong>TradeHarbor</strong>
+            <small>Built for operators</small>
+          </aside>
         </div>
       </header>
 
       <main class="layout">
-        <section class="panel filters-panel">
-          <div class="panel-header">
-            <h2>筛选条件</h2>
-            <p>填写后点击查询，就会返回匹配商品列表。</p>
-          </div>
+        <section class="tabs-shell" aria-label="功能页面">
+          <nav class="tabs-nav" role="tablist">
+            <button class="tab-button is-active" type="button" role="tab" aria-selected="true" aria-controls="amazon-search-panel">
+              <span>Amazon 搜索</span>
+              <strong>Search</strong>
+            </button>
+          </nav>
+
+          <div class="tab-panel is-active" id="amazon-search-panel" role="tabpanel">
+            <section class="panel filters-panel">
+              <div class="panel-header">
+                <h2>筛选条件</h2>
+                <p>可直接选择 Amazon 大类；如需更细类目，可填写自定义 node 或 rh。</p>
+              </div>
 
           <form id="filter-form" class="filters-grid">
-            <label>
-              <span>数据源</span>
-              <select name="data_source">
-                <option value="serpapi">SerpApi 搜索</option>
-                <option value="amazon_live">Amazon 直连搜索</option>
-                <option value="demo">本地演示数据</option>
-              </select>
-            </label>
-            <label>
-              <span>关键词</span>
+            <label class="field-wide">
+              <span>关键词 k</span>
               <input type="text" name="keyword" placeholder="如 iphone case / laptop stand" />
             </label>
             <label>
-              <span>品牌</span>
-              <input type="text" name="brand" placeholder="如 SoundMax" />
-            </label>
-            <label>
-              <span>类目</span>
-              <input type="text" name="category" placeholder="如 Electronics" />
-            </label>
-            <label>
-              <span>卖家</span>
-              <input type="text" name="seller" placeholder="如 Amazon" />
-            </label>
-            <label>
-              <span>最低价格</span>
-              <input type="number" step="0.01" name="min_price" placeholder="0" />
-            </label>
-            <label>
-              <span>最高价格</span>
-              <input type="number" step="0.01" name="max_price" placeholder="200" />
-            </label>
-            <label>
-              <span>最低评分</span>
-              <input type="number" step="0.1" name="min_rating" placeholder="4.0" />
-            </label>
-            <label>
-              <span>最少评论数</span>
-              <input type="number" name="min_reviews" placeholder="500" />
-            </label>
-            <label>
-              <span>最少销量</span>
-              <input type="number" name="min_sales" placeholder="300" />
-            </label>
-            <label>
-              <span>结果数量</span>
-              <input type="number" name="limit" placeholder="20" />
-            </label>
-            <label>
-              <span>排序字段</span>
-              <select name="sort_by">
-                <option value="rating">评分</option>
-                <option value="reviews">评论数</option>
-                <option value="sales">销量</option>
-                <option value="price">价格</option>
-                <option value="title">标题</option>
+              <span>Amazon 站点</span>
+              <select name="amazon_domain">
+                <option value="amazon.com">amazon.com</option>
+                <option value="amazon.co.uk">amazon.co.uk</option>
+                <option value="amazon.ca">amazon.ca</option>
+                <option value="amazon.de">amazon.de</option>
+                <option value="amazon.fr">amazon.fr</option>
+                <option value="amazon.co.jp">amazon.co.jp</option>
               </select>
             </label>
             <label>
-              <span>排序方式</span>
-              <select name="descending">
-                <option value="true">从高到低</option>
-                <option value="false">从低到高</option>
+              <span>语言 language</span>
+              <select name="language">
+                <option value="en_US">en_US</option>
+                <option value="es_US">es_US</option>
+                <option value="en_GB">en_GB</option>
+                <option value="de_DE">de_DE</option>
+                <option value="fr_FR">fr_FR</option>
+                <option value="ja_JP">ja_JP</option>
               </select>
             </label>
-            <label class="checkbox-row">
-              <input type="checkbox" name="prime_only" value="true" />
-              <span>只看 Prime 商品</span>
+            <label>
+              <span>排序 s</span>
+              <select name="sort">
+                <option value="relevanceblender">Featured 默认相关</option>
+                <option value="price-asc-rank">价格从低到高</option>
+                <option value="price-desc-rank">价格从高到低</option>
+                <option value="review-rank">平均评分</option>
+                <option value="date-desc-rank">新品</option>
+                <option value="exact-aware-popularity-rank">Best Sellers</option>
+              </select>
+            </label>
+            <label>
+              <span>Amazon 大类</span>
+              <select name="category_node">
+                <option value="">全部大类</option>
+                <option value="468240">Tools & Home Improvement</option>
+                <option value="16310161">Industrial & Scientific</option>
+                <option value="493964">Electronics</option>
+                <option value="541966">Computers</option>
+                <option value="2619526011">Appliances</option>
+                <option value="15690151">Automotive</option>
+                <option value="1055398">Amazon Home</option>
+                <option value="1063498">Home & Kitchen</option>
+                <option value="3375301">Sports & Outdoors</option>
+                <option value="3760931">Health & Personal Care</option>
+                <option value="11055981">Beauty</option>
+                <option value="2617942011">Arts, Crafts & Sewing</option>
+                <option value="1084128">Office Products</option>
+                <option value="165795011">Toys & Games</option>
+                <option value="2335753011">Cell Phones & Accessories</option>
+                <option value="7141124011">Clothing, Shoes & Jewelry</option>
+                <option value="1000">Books</option>
+                <option value="2619534011">Pet Supplies</option>
+                <option value="3238155011">Patio, Lawn & Garden</option>
+                <option value="11965861">Musical Instruments</option>
+              </select>
+            </label>
+            <label>
+              <span>自定义 node</span>
+              <input type="text" name="node" placeholder="如 6563140011" />
+            </label>
+            <label class="field-wide">
+              <span>高级筛选 rh</span>
+              <input type="text" name="rh" placeholder="如 n:16318031,p_72:1248897011" />
+            </label>
+            <label>
+              <span>配送邮编</span>
+              <input type="text" name="delivery_zip" placeholder="如 10001" />
+            </label>
+            <label>
+              <span>配送国家</span>
+              <input type="text" name="shipping_location" placeholder="如 US" />
+            </label>
+            <label>
+              <span>设备 device</span>
+              <select name="device">
+                <option value="desktop">desktop</option>
+                <option value="mobile">mobile</option>
+                <option value="tablet">tablet</option>
+              </select>
+            </label>
+            <label>
+              <span>拼写修正 dc</span>
+              <select name="dc">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </label>
+            <label>
+              <span>卖家地区分析</span>
+              <select name="seller_region">
+                <option value="">不限，不分析卖家</option>
+                <option value="china">中国卖家</option>
+                <option value="us">美国卖家</option>
+              </select>
+            </label>
+            <label>
+              <span>卖家地址/公司名关键词</span>
+              <input type="text" name="seller_city" placeholder="如 郑州 / zhengzhou / Shenzhen" />
             </label>
 
             <div class="actions">
               <button type="submit" class="primary-btn">开始查询</button>
               <button type="button" class="ghost-btn" id="reset-btn">重置条件</button>
             </div>
-          </form>
+            </form>
+            </section>
+          </div>
         </section>
 
         <section class="panel results-panel">
@@ -114,7 +186,7 @@
           </div>
 
           <div class="data-note" id="data-note">
-            默认使用 Amazon 在线搜索；如果被拦截，可切回本地演示数据。
+            默认使用 SerpApi 搜索；可按站点、语言、排序、类目节点和高级筛选参数查询。
           </div>
 
           <div class="stats-grid" id="stats-grid">
@@ -131,6 +203,14 @@
               <strong id="stat-rating">0.0</strong>
             </article>
             <article class="stat-card">
+              <span>总商品数</span>
+              <strong id="stat-total">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>总页数</span>
+              <strong id="stat-pages">0</strong>
+            </article>
+            <article class="stat-card">
               <span>Prime 占比</span>
               <strong id="stat-prime">0%</strong>
             </article>
@@ -143,9 +223,10 @@
                   <th>ASIN</th>
                   <th>图片</th>
                   <th>标题</th>
-                  <th>品牌</th>
                   <th>类目</th>
                   <th>卖家</th>
+                  <th>发货方</th>
+                  <th>卖家地区</th>
                   <th>价格</th>
                   <th>评分</th>
                   <th>评论数</th>
@@ -157,10 +238,23 @@
               <tbody id="results-body"></tbody>
             </table>
           </div>
+
+          <div class="pagination-bar" aria-label="搜索结果分页">
+            <label class="page-size-control">
+              <span>每页显示</span>
+              <select id="page-size-select">
+                <option value="30">30 条</option>
+                <option value="50">50 条</option>
+              </select>
+            </label>
+            <button type="button" class="ghost-btn page-btn" id="prev-page-btn">上一页</button>
+            <span id="page-indicator">第 1 页 / 共 0 页</span>
+            <button type="button" class="primary-btn page-btn" id="next-page-btn">下一页</button>
+          </div>
         </section>
       </main>
     </div>
 
-    <script src="/app.js"></script>
+    <script src="/app.js?v=20260509-6"></script>
   </body>
 </html>
