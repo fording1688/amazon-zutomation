@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TradeHarbor 跨境生意操作台</title>
-    <link rel="stylesheet" href="/styles.css?v=20260509-6" />
+    <link rel="stylesheet" href="/styles.css?v=20260509-14" />
   </head>
   <body>
     <div class="page-shell">
@@ -27,7 +27,6 @@
         <div class="hero-main">
           <div class="hero-copy">
             <p class="eyebrow">Cross-Border Commerce OS</p>
-            <h1>把跨境选品、卖家分析和运营工具，收进一个工作台</h1>
             <p class="hero-text">
               从 Amazon 搜索开始，逐步沉淀你日常高频使用的跨境功能：选品抓取、卖家识别、类目筛选、数据导出和后续可收费的专业模块。
             </p>
@@ -49,9 +48,17 @@
       <main class="layout">
         <section class="tabs-shell" aria-label="功能页面">
           <nav class="tabs-nav" role="tablist">
-            <button class="tab-button is-active" type="button" role="tab" aria-selected="true" aria-controls="amazon-search-panel">
+            <button class="tab-button is-active" type="button" role="tab" aria-selected="true" aria-controls="amazon-search-panel" data-tab-target="amazon-search-panel">
               <span>Amazon 搜索</span>
               <strong>Search</strong>
+            </button>
+            <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="utility-panel" data-tab-target="utility-panel">
+              <span>实用工具</span>
+              <strong>Tools</strong>
+            </button>
+            <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="ai-opportunity-panel" data-tab-target="ai-opportunity-panel">
+              <span>AI发现机会</span>
+              <strong>AI Scout</strong>
             </button>
           </nav>
 
@@ -177,9 +184,208 @@
             </form>
             </section>
           </div>
+
+          <div class="tab-panel" id="utility-panel" role="tabpanel">
+            <section class="panel utility-panel">
+              <div class="panel-header">
+                <h2>实用工具</h2>
+                <p>沉淀跨境日常高频工具：汇率转换、重量单位换算，后续可继续扩展运费、利润和尺寸计算。</p>
+              </div>
+
+              <div class="utility-grid">
+                <article class="exchange-card">
+                  <div class="exchange-head">
+                    <span>Currency Converter</span>
+                    <strong>汇率转换</strong>
+                  </div>
+
+                  <form id="exchange-form" class="exchange-form">
+                    <label>
+                      <span>金额</span>
+                      <input type="number" name="amount" step="0.01" min="0" value="1" />
+                    </label>
+                    <label>
+                      <span>从</span>
+                      <select name="from">
+                        <option value="USD" selected>USD 美元</option>
+                        <option value="CNY">CNY 人民币</option>
+                        <option value="EUR">EUR 欧元</option>
+                        <option value="GBP">GBP 英镑</option>
+                        <option value="JPY">JPY 日元</option>
+                        <option value="CAD">CAD 加元</option>
+                        <option value="AUD">AUD 澳元</option>
+                        <option value="HKD">HKD 港币</option>
+                      </select>
+                    </label>
+                    <button type="button" class="swap-btn" id="swap-currency-btn" aria-label="交换币种">⇄</button>
+                    <label>
+                      <span>到</span>
+                      <select name="to">
+                        <option value="CNY" selected>CNY 人民币</option>
+                        <option value="USD">USD 美元</option>
+                        <option value="EUR">EUR 欧元</option>
+                        <option value="GBP">GBP 英镑</option>
+                        <option value="JPY">JPY 日元</option>
+                        <option value="CAD">CAD 加元</option>
+                        <option value="AUD">AUD 澳元</option>
+                        <option value="HKD">HKD 港币</option>
+                      </select>
+                    </label>
+                    <button type="submit" class="primary-btn exchange-submit">立即转换</button>
+                  </form>
+
+                  <div class="exchange-result" id="exchange-result">
+                    <span>实时汇率结果</span>
+                    <strong>1 USD ≈ -- CNY</strong>
+                    <p>点击转换后获取最新汇率。</p>
+                  </div>
+                </article>
+
+                <article class="exchange-card weight-card">
+                  <div class="exchange-head">
+                    <span>Weight Converter</span>
+                    <strong>重量换算</strong>
+                  </div>
+
+                  <form id="weight-form" class="exchange-form weight-form">
+                    <label>
+                      <span>克 g</span>
+                      <input type="number" name="grams" step="0.01" min="0" value="1000" />
+                    </label>
+                    <button type="button" class="swap-btn" id="swap-weight-btn" aria-label="切换输入方向">⇄</button>
+                    <label>
+                      <span>磅 lb</span>
+                      <input type="number" name="pounds" step="0.0001" min="0" />
+                    </label>
+                  </form>
+
+                  <div class="exchange-result weight-result" id="weight-result">
+                    <span>重量换算结果</span>
+                    <strong>1000 g ≈ 2.2046 lb</strong>
+                    <p>常用于商品重量、物流重量和包装重量快速估算。</p>
+                  </div>
+                </article>
+
+                <article class="exchange-card dimension-card">
+                  <div class="exchange-head">
+                    <span>Dimension Converter</span>
+                    <strong>尺寸换算</strong>
+                  </div>
+
+                  <form id="dimension-form" class="exchange-form weight-form">
+                    <label>
+                      <span>毫米 mm</span>
+                      <input type="number" name="millimeters" step="0.01" min="0" value="25.4" />
+                    </label>
+                    <button type="button" class="swap-btn" id="swap-dimension-btn" aria-label="切换输入方向">⇄</button>
+                    <label>
+                      <span>英寸 inch</span>
+                      <input type="number" name="inches" step="0.0001" min="0" />
+                    </label>
+                  </form>
+
+                  <div class="exchange-result dimension-result" id="dimension-result">
+                    <span>尺寸换算结果</span>
+                    <strong>25.4 mm = 1 inch</strong>
+                    <p>常用于商品尺寸、包装尺寸和物流体积计算。</p>
+                  </div>
+                </article>
+
+                <article class="utility-note">
+                  <span>Free API</span>
+                  <h3>数据来源：fxapi.app</h3>
+                  <p>无需 API key，单币对 JSON 接口。免费接口适合运营工具和原型验证，正式商业化前建议保留备用数据源。</p>
+                </article>
+              </div>
+            </section>
+          </div>
+          <div class="tab-panel" id="ai-opportunity-panel" role="tabpanel">
+            <section class="panel ai-panel">
+              <div class="panel-header ai-panel-header">
+                <div>
+                  <h2>AI发现机会</h2>
+                  <p>输入 Amazon 关键词，系统自动抓取前 50 个商品，分析竞争、Bundle 空白、利润和新卖家打法。</p>
+                </div>
+                <span class="ai-mode-pill">Local Rules + OpenAI Ready</span>
+              </div>
+
+              <form id="ai-opportunity-form" class="ai-search-bar">
+                <label>
+                  <span>Amazon 关键词</span>
+                  <input type="text" name="keyword" placeholder="如 diamond grinding wheel" />
+                </label>
+                <button type="submit" class="primary-btn">AI发现机会</button>
+              </form>
+
+              <div class="ai-status" id="ai-status">输入关键词后开始分析。</div>
+
+              <div class="ai-results" id="ai-results" hidden>
+                <div class="ai-score-grid">
+                  <article class="ai-score-card">
+                    <span>产品机会评分</span>
+                    <strong id="ai-opportunity-score">0</strong>
+                  </article>
+                  <article class="ai-score-card">
+                    <span>竞争评分</span>
+                    <strong id="ai-competition-score">0</strong>
+                  </article>
+                  <article class="ai-score-card">
+                    <span>竞争等级</span>
+                    <strong id="ai-competition-level">--</strong>
+                  </article>
+                  <article class="ai-score-card">
+                    <span>推荐组合</span>
+                    <strong id="ai-recommended-bundle">--</strong>
+                  </article>
+                </div>
+
+                <div class="ai-report-grid">
+                  <article class="ai-report-card">
+                    <h3>Bundle机会分析</h3>
+                    <div id="ai-bundle-analysis"></div>
+                  </article>
+                  <article class="ai-report-card">
+                    <h3>利润分析</h3>
+                    <div id="ai-profit-analysis"></div>
+                  </article>
+                  <article class="ai-report-card ai-report-wide">
+                    <h3>AI总结</h3>
+                    <div id="ai-summary"></div>
+                  </article>
+                </div>
+
+                <article class="ai-report-card ai-report-wide">
+                  <h3>产品列表</h3>
+                  <div class="ai-product-table-wrap">
+                    <table class="ai-product-table">
+                      <thead>
+                        <tr>
+                          <th>ASIN</th>
+                          <th>图</th>
+                          <th>标题</th>
+                          <th>价格</th>
+                          <th>Rating</th>
+                          <th>Review</th>
+                          <th>品牌</th>
+                          <th>Seller Name</th>
+                          <th>Seller ID</th>
+                          <th>Prime</th>
+                          <th>BSR</th>
+                          <th>变体</th>
+                          <th>多件装</th>
+                          <th>类目</th>
+                        </tr>
+                      </thead>
+                      <tbody id="ai-products-body"></tbody>
+                    </table>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </div>
         </section>
 
-        <section class="panel results-panel">
+        <section class="panel results-panel" id="amazon-results-panel">
           <div class="panel-header">
             <h2>查询结果</h2>
             <p id="status-text">默认加载全部商品数据。</p>
@@ -232,7 +438,6 @@
                   <th>评论数</th>
                   <th>销量</th>
                   <th>Prime</th>
-                  <th>链接</th>
                 </tr>
               </thead>
               <tbody id="results-body"></tbody>
@@ -255,6 +460,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=20260509-6"></script>
+    <script src="/app.js?v=20260509-14"></script>
   </body>
 </html>

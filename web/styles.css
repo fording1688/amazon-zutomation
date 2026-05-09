@@ -38,8 +38,8 @@ body {
 .hero {
   position: relative;
   display: grid;
-  gap: 28px;
-  padding: 30px 34px 34px;
+  gap: 22px;
+  padding: 30px 34px 30px;
   border: 1px solid rgba(255, 255, 255, 0.62);
   border-radius: 32px;
   background:
@@ -127,7 +127,7 @@ body {
 }
 
 .hero-text {
-  margin: 20px 0 0;
+  margin: 10px 0 0;
   max-width: 780px;
   font-size: 17px;
   line-height: 1.75;
@@ -607,4 +607,412 @@ table {
   width: auto;
   min-width: 104px;
   padding: 10px 12px;
+}
+
+
+.product-title-link {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(216, 116, 47, 0.38);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.product-title-link:hover {
+  color: var(--brand-dark);
+  border-color: var(--brand);
+}
+
+.utility-panel {
+  overflow: hidden;
+}
+
+.utility-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.8fr);
+  gap: 18px;
+  padding: 22px 24px 24px;
+}
+
+.exchange-card,
+.utility-note {
+  border: 1px solid rgba(23, 33, 43, 0.1);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.66);
+  box-shadow: 0 18px 44px rgba(55, 44, 31, 0.08);
+}
+
+.exchange-card {
+  padding: 22px;
+}
+
+.exchange-head span,
+.utility-note span {
+  color: var(--harbor);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.exchange-head strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 30px;
+}
+
+.exchange-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) auto minmax(150px, 1fr) minmax(150px, 0.8fr);
+  align-items: end;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.exchange-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.exchange-form label span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.swap-btn {
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  color: var(--harbor);
+  background: rgba(36, 106, 95, 0.08);
+  cursor: pointer;
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.exchange-submit {
+  min-height: 48px;
+}
+
+.exchange-result {
+  margin-top: 20px;
+  padding: 22px;
+  border-radius: 22px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--navy), var(--harbor));
+}
+
+.exchange-result span {
+  display: block;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 14px;
+}
+
+.exchange-result strong {
+  display: block;
+  margin-top: 10px;
+  font-size: clamp(30px, 4vw, 52px);
+  letter-spacing: -0.04em;
+}
+
+.exchange-result p {
+  margin: 12px 0 0;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.6;
+}
+
+.utility-note {
+  padding: 22px;
+  background:
+    radial-gradient(circle at top right, rgba(216, 116, 47, 0.14), transparent 42%),
+    rgba(255, 250, 240, 0.76);
+}
+
+.utility-note h3 {
+  margin: 10px 0 0;
+  font-size: 24px;
+}
+
+.utility-note p {
+  margin: 12px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+@media (max-width: 1000px) {
+  .utility-grid,
+  .exchange-form {
+    grid-template-columns: 1fr;
+  }
+
+  .swap-btn {
+    width: 100%;
+  }
+}
+
+.weight-card {
+  background:
+    radial-gradient(circle at top left, rgba(36, 106, 95, 0.12), transparent 40%),
+    rgba(255, 255, 255, 0.68);
+}
+
+.weight-form {
+  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
+}
+
+.weight-result {
+  background: linear-gradient(135deg, #23313c, #7d4a20);
+}
+
+.dimension-card {
+  background:
+    radial-gradient(circle at top left, rgba(216, 116, 47, 0.12), transparent 40%),
+    rgba(255, 255, 255, 0.68);
+}
+
+.dimension-result {
+  background: linear-gradient(135deg, #17212b, #8b421a);
+}
+
+
+.ai-panel {
+  position: relative;
+  overflow: hidden;
+  color: #e9f4f1;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(45, 212, 191, 0.18), transparent 30%),
+    radial-gradient(circle at 84% 6%, rgba(216, 116, 47, 0.2), transparent 28%),
+    linear-gradient(135deg, #0e1720 0%, #15232b 48%, #0d2a29 100%);
+  border-color: rgba(121, 255, 229, 0.16);
+}
+
+.ai-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85), transparent 92%);
+  pointer-events: none;
+}
+
+.ai-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.ai-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.ai-panel-header h2,
+.ai-report-card h3 {
+  color: #f8fff8;
+}
+
+.ai-panel-header p,
+.ai-status,
+.ai-report-card p,
+.ai-report-card li {
+  color: rgba(233, 244, 241, 0.72);
+}
+
+.ai-mode-pill {
+  flex: 0 0 auto;
+  padding: 10px 13px;
+  border: 1px solid rgba(45, 212, 191, 0.24);
+  border-radius: 999px;
+  color: #9ff6e8;
+  background: rgba(45, 212, 191, 0.08);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ai-search-bar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 0.22fr);
+  gap: 14px;
+  padding: 22px 24px 12px;
+  align-items: end;
+}
+
+.ai-search-bar label {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-search-bar span {
+  color: rgba(233, 244, 241, 0.7);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.ai-search-bar input {
+  color: #f8fff8;
+  border-color: rgba(159, 246, 232, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ai-search-bar input::placeholder {
+  color: rgba(233, 244, 241, 0.44);
+}
+
+.ai-status {
+  margin: 0 24px 20px;
+  padding: 14px 16px;
+  border: 1px solid rgba(216, 116, 47, 0.22);
+  border-radius: 18px;
+  background: rgba(216, 116, 47, 0.08);
+}
+
+.ai-results {
+  display: grid;
+  gap: 18px;
+  padding: 0 24px 24px;
+}
+
+.ai-score-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 14px;
+}
+
+.ai-score-card,
+.ai-report-card {
+  border: 1px solid rgba(159, 246, 232, 0.14);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+}
+
+.ai-score-card {
+  padding: 18px;
+}
+
+.ai-score-card span {
+  display: block;
+  color: rgba(233, 244, 241, 0.62);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ai-score-card strong {
+  display: block;
+  margin-top: 10px;
+  color: #f8fff8;
+  font-size: clamp(24px, 3vw, 42px);
+  letter-spacing: -0.04em;
+}
+
+.ai-report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ai-report-card {
+  padding: 20px;
+}
+
+.ai-report-card h3 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+
+.ai-report-card ul {
+  margin: 12px 0 0;
+  padding-left: 20px;
+}
+
+.ai-report-card li + li {
+  margin-top: 6px;
+}
+
+.ai-report-wide {
+  grid-column: 1 / -1;
+}
+
+.profit-table-wrap,
+.ai-product-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.profit-table,
+.ai-product-table {
+  min-width: 680px;
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(3, 12, 18, 0.26);
+}
+
+.ai-product-table {
+  min-width: 1320px;
+}
+
+.profit-table th,
+.profit-table td,
+.ai-product-table th,
+.ai-product-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(248, 255, 248, 0.82);
+  text-align: left;
+  vertical-align: top;
+}
+
+.profit-table th,
+.ai-product-table th {
+  color: rgba(159, 246, 232, 0.76);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ai-product-table .product-title-link {
+  color: #f8fff8;
+  border-color: rgba(159, 246, 232, 0.3);
+}
+
+.ai-product-table .product-title-link:hover {
+  color: #9ff6e8;
+  border-color: #9ff6e8;
+}
+
+.openai-report {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(45, 212, 191, 0.08);
+}
+
+.openai-report h4 {
+  margin: 0 0 8px;
+  color: #9ff6e8;
+}
+
+.muted-note {
+  color: rgba(233, 244, 241, 0.56) !important;
+}
+
+@media (max-width: 900px) {
+  .ai-panel-header,
+  .ai-search-bar,
+  .ai-score-grid,
+  .ai-report-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-panel-header {
+    display: grid;
+  }
 }

@@ -3,11 +3,14 @@
 import argparse
 import csv
 import json
+from urllib.error import HTTPError, URLError
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
 
+from ai_opportunity import analyze_ai_opportunity
 from amazon_scraper import AmazonScraperError, fetch_amazon_rows
 from serpapi_amazon import SerpApiAmazonError, enrich_rows_with_seller_info, search_display_page
 
@@ -190,6 +193,40 @@ def filter_rows(params):
     return {"summary": summary, "items": rows}
 
 
+def fetch_exchange_rate(params):
+    amount = to_float(params.get("amount")) or 1
+    base = (params.get("from") or "USD").strip().upper()
+    target = (params.get("to") or "CNY").strip().upper()
+    if len(base) != 3 or len(target) != 3:
+        raise ValueError("Currency codes must be 3-letter ISO codes.")
+
+    url = f"https://fxapi.app/api/{base.lower()}/{target.lower()}.json"
+    request = Request(url, headers={"User-Agent": "TradeHarbor/1.0"})
+    try:
+        with urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+    except HTTPError as error:
+        raise RuntimeError(f"FX API returned HTTP {error.code}.") from error
+    except URLError as error:
+        raise RuntimeError(f"Network error: {error.reason}") from error
+    except json.JSONDecodeError as error:
+        raise RuntimeError("FX API returned invalid JSON.") from error
+
+    rate = to_float(payload.get("rate"))
+    if rate is None:
+        raise RuntimeError("FX API did not return a valid rate.")
+
+    return {
+        "amount": amount,
+        "from": base,
+        "to": target,
+        "rate": rate,
+        "converted": round(amount * rate, 4),
+        "timestamp": payload.get("timestamp", ""),
+        "provider": "fxapi.app",
+    }
+
+
 class AmazonProductHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(WEB_DIR), **kwargs)
@@ -204,6 +241,44 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
             payload = filter_rows(params)
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/api/exchange":
+            params = {
+                key: values[0]
+                for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            }
+            try:
+                payload = {"ok": True, "result": fetch_exchange_rate(params)}
+                status = HTTPStatus.OK
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/api/ai-opportunity":
+            params = {
+                key: values[0]
+                for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            }
+            try:
+                payload = {"ok": True, "result": analyze_ai_opportunity(params.get("keyword", ""))}
+                status = HTTPStatus.OK
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
