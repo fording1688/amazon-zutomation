@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Amazon Hunter</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Amazon Product Finder</p>
+          <h1>用 SerpApi 搜索 Amazon 商品，直接看到价格、评分和 ASIN</h1>
+          <p class="hero-text">
+            输入关键词后，本地后端会调用 SerpApi 的 Amazon Search API，再把标题、价格、Review、Rating、ASIN 和图片整理成表格。
+          </p>
+        </div>
+        <div class="hero-badge">
+          <span>Web Demo</span>
+          <strong>SerpApi</strong>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel filters-panel">
+          <div class="panel-header">
+            <h2>筛选条件</h2>
+            <p>填写后点击查询，就会返回匹配商品列表。</p>
+          </div>
+
+          <form id="filter-form" class="filters-grid">
+            <label>
+              <span>数据源</span>
+              <select name="data_source">
+                <option value="serpapi">SerpApi 搜索</option>
+                <option value="amazon_live">Amazon 直连搜索</option>
+                <option value="demo">本地演示数据</option>
+              </select>
+            </label>
+            <label>
+              <span>关键词</span>
+              <input type="text" name="keyword" placeholder="如 iphone case / laptop stand" />
+            </label>
+            <label>
+              <span>品牌</span>
+              <input type="text" name="brand" placeholder="如 SoundMax" />
+            </label>
+            <label>
+              <span>类目</span>
+              <input type="text" name="category" placeholder="如 Electronics" />
+            </label>
+            <label>
+              <span>卖家</span>
+              <input type="text" name="seller" placeholder="如 Amazon" />
+            </label>
+            <label>
+              <span>最低价格</span>
+              <input type="number" step="0.01" name="min_price" placeholder="0" />
+            </label>
+            <label>
+              <span>最高价格</span>
+              <input type="number" step="0.01" name="max_price" placeholder="200" />
+            </label>
+            <label>
+              <span>最低评分</span>
+              <input type="number" step="0.1" name="min_rating" placeholder="4.0" />
+            </label>
+            <label>
+              <span>最少评论数</span>
+              <input type="number" name="min_reviews" placeholder="500" />
+            </label>
+            <label>
+              <span>最少销量</span>
+              <input type="number" name="min_sales" placeholder="300" />
+            </label>
+            <label>
+              <span>结果数量</span>
+              <input type="number" name="limit" placeholder="20" />
+            </label>
+            <label>
+              <span>排序字段</span>
+              <select name="sort_by">
+                <option value="rating">评分</option>
+                <option value="reviews">评论数</option>
+                <option value="sales">销量</option>
+                <option value="price">价格</option>
+                <option value="title">标题</option>
+              </select>
+            </label>
+            <label>
+              <span>排序方式</span>
+              <select name="descending">
+                <option value="true">从高到低</option>
+                <option value="false">从低到高</option>
+              </select>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="prime_only" value="true" />
+              <span>只看 Prime 商品</span>
+            </label>
+
+            <div class="actions">
+              <button type="submit" class="primary-btn">开始查询</button>
+              <button type="button" class="ghost-btn" id="reset-btn">重置条件</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="panel-header">
+            <h2>查询结果</h2>
+            <p id="status-text">默认加载全部商品数据。</p>
+          </div>
+
+          <div class="data-note" id="data-note">
+            默认使用 Amazon 在线搜索；如果被拦截，可切回本地演示数据。
+          </div>
+
+          <div class="stats-grid" id="stats-grid">
+            <article class="stat-card">
+              <span>匹配商品</span>
+              <strong id="stat-count">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>平均价格</span>
+              <strong id="stat-price">$0.00</strong>
+            </article>
+            <article class="stat-card">
+              <span>平均评分</span>
+              <strong id="stat-rating">0.0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Prime 占比</span>
+              <strong id="stat-prime">0%</strong>
+            </article>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ASIN</th>
+                  <th>图片</th>
+                  <th>标题</th>
+                  <th>品牌</th>
+                  <th>类目</th>
+                  <th>卖家</th>
+                  <th>价格</th>
+                  <th>评分</th>
+                  <th>评论数</th>
+                  <th>销量</th>
+                  <th>Prime</th>
+                  <th>链接</th>
+                </tr>
+              </thead>
+              <tbody id="results-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

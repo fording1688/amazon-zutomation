@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+amazon_results*.csv
+amazon_results*.json
+amazon_test_results.csv
+
+.DS_Store
