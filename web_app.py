@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 from ai_opportunity import analyze_ai_opportunity, build_bundle_plan
 from amazon_reviews import fetch_asin_reviews
 from amazon_scraper import AmazonScraperError, fetch_amazon_rows
+from database import check_database_connection
 from market_gap import discover_market_gaps
 from pdf_made_in_china import add_made_in_china_to_pdf
 from product_hunter import analyze_product_hunter
@@ -337,6 +338,25 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/api/db-health":
+            params = {
+                key: values[0]
+                for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            }
+            try:
+                payload = {
+                    "ok": True,
+                    "result": check_database_connection(
+                        use_direct=(params.get("direct") or "false").lower() == "true"
+                    ),
+                }
+                status = HTTPStatus.OK
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json(payload, status)
+            return
+
         if parsed.path == "/api/products":
             params = {
                 key: values[0]

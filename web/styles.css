@@ -628,8 +628,10 @@ table {
 
 .utility-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.8fr);
+  grid-template-columns: 1fr;
   gap: 18px;
+  max-width: 1080px;
+  margin: 0 auto;
   padding: 22px 24px 24px;
 }
 
@@ -642,7 +644,19 @@ table {
 }
 
 .exchange-card {
-  padding: 22px;
+  position: relative;
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.exchange-card::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: linear-gradient(90deg, var(--brand), rgba(36, 106, 95, 0.9));
 }
 
 .exchange-head span,
@@ -665,7 +679,7 @@ table {
   grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) auto minmax(150px, 1fr) minmax(150px, 0.8fr);
   align-items: end;
   gap: 14px;
-  margin-top: 20px;
+  margin-top: 2px;
 }
 
 .exchange-form label {
@@ -695,7 +709,7 @@ table {
 }
 
 .exchange-result {
-  margin-top: 20px;
+  margin-top: 0;
   padding: 22px;
   border-radius: 22px;
   color: #fff;
@@ -775,6 +789,48 @@ table {
 }
 
 
+
+.utility-panel .panel-header {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.utility-note {
+  max-width: 1080px;
+}
+
+.exchange-card .exchange-result {
+  min-height: 150px;
+}
+
+.exchange-card.weight-card,
+.exchange-card.dimension-card {
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.4fr) minmax(280px, 0.9fr);
+  align-items: center;
+}
+
+.exchange-card.weight-card .exchange-head,
+.exchange-card.dimension-card .exchange-head {
+  align-self: start;
+}
+
+.exchange-card.weight-card .exchange-form,
+.exchange-card.dimension-card .exchange-form {
+  margin-top: 0;
+}
+
+.exchange-card.weight-card .exchange-result,
+.exchange-card.dimension-card .exchange-result {
+  margin-top: 0;
+}
+
+@media (max-width: 1100px) {
+  .exchange-card.weight-card,
+  .exchange-card.dimension-card {
+    grid-template-columns: 1fr;
+  }
+}
+
 .pdf-card {
   grid-column: 1 / -1;
   background:
@@ -787,7 +843,7 @@ table {
   grid-template-columns: minmax(260px, 1.6fr) minmax(170px, 0.8fr) minmax(110px, 0.4fr) minmax(150px, 0.55fr);
   align-items: end;
   gap: 14px;
-  margin-top: 20px;
+  margin-top: 2px;
 }
 
 .pdf-origin-form label {
