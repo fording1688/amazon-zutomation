@@ -5,6 +5,7 @@ import csv
 import json
 import os
 import re
+import time
 from urllib.error import HTTPError, URLError
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -15,7 +16,7 @@ from urllib.request import Request, urlopen
 from ai_opportunity import analyze_ai_opportunity, build_bundle_plan
 from amazon_reviews import fetch_asin_reviews
 from amazon_scraper import AmazonScraperError, fetch_amazon_rows
-from database import check_database_connection
+from database import count_operation_logs, check_database_connection, ensure_operation_logs_table, log_operation
 from market_gap import discover_market_gaps
 from pdf_made_in_china import add_made_in_china_to_pdf
 from product_hunter import analyze_product_hunter
@@ -253,6 +254,27 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def write_operation_log(self, action, params, payload, status, started_at):
+        try:
+            log_operation(
+                action=action,
+                method=self.command,
+                path=urlparse(self.path).path,
+                query_params=params,
+                success=bool(payload.get("ok", status < HTTPStatus.BAD_REQUEST)) if isinstance(payload, dict) else status < HTTPStatus.BAD_REQUEST,
+                status_code=int(status),
+                duration_ms=round((time.monotonic() - started_at) * 1000),
+                error=(payload.get("error", "") if isinstance(payload, dict) else ""),
+                client_ip=self.client_address[0] if self.client_address else "",
+                user_agent=self.headers.get("User-Agent", ""),
+            )
+        except Exception as error:
+            print(f"Operation log skipped for {action}: {error}")
+
+    def send_json_and_log(self, action, params, payload, status, started_at):
+        self.send_json(payload, status)
+        self.write_operation_log(action, params, payload, status, started_at)
+
     def parse_multipart_form(self):
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
@@ -310,14 +332,22 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
         return fields, files
 
     def do_POST(self):
+        started_at = time.monotonic()
         parsed = urlparse(self.path)
         if parsed.path == "/api/pdf-made-in-china":
+            params = {}
             try:
                 fields, files = self.parse_multipart_form()
                 uploaded_pdf = files.get("pdf") or files.get("file")
+                filename = (uploaded_pdf or {}).get("filename") or "labels.pdf"
+                params = {
+                    "filename": filename,
+                    "file_size": len((uploaded_pdf or {}).get("content", b"")),
+                    "text": fields.get("text") or "Made In China",
+                    "font_size": fields.get("font_size") or "8",
+                }
                 if not uploaded_pdf:
                     raise ValueError("请先选择一个 PDF 文件。")
-                filename = uploaded_pdf.get("filename") or "labels.pdf"
                 if not filename.lower().endswith(".pdf"):
                     raise ValueError("当前只支持上传 PDF 文件。")
 
@@ -329,16 +359,21 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
                 )
                 result["file_url"] = f"/generated/{result['output_name']}"
                 result["message"] = f"已识别 {result['labels_detected']} 个标签，并写入 Made In China。"
-                self.send_json({"ok": True, "result": result})
+                payload = {"ok": True, "result": result}
+                status = HTTPStatus.OK
             except Exception as error:
-                self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_REQUEST
+            self.send_json_and_log("pdf_made_in_china", params, payload, status, started_at)
             return
 
         self.send_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def do_GET(self):
         parsed = urlparse(self.path)
+
         if parsed.path == "/api/db-health":
+            started_at = time.monotonic()
             params = {
                 key: values[0]
                 for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
@@ -354,24 +389,38 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
             except Exception as error:
                 payload = {"ok": False, "error": str(error)}
                 status = HTTPStatus.BAD_GATEWAY
+            self.send_json_and_log("db_health", params, payload, status, started_at)
+            return
+
+        if parsed.path == "/api/operation-logs/count":
+            started_at = time.monotonic()
+            params = {}
+            try:
+                payload = {"ok": True, "result": {"count": count_operation_logs()}}
+                status = HTTPStatus.OK
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
             self.send_json(payload, status)
             return
 
         if parsed.path == "/api/products":
+            started_at = time.monotonic()
             params = {
                 key: values[0]
                 for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
             }
-            payload = filter_rows(params)
-            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                payload = {"ok": True, **filter_rows(params)}
+                status = HTTPStatus.OK
+            except Exception as error:
+                payload = {"ok": False, "error": str(error), "summary": {}, "items": []}
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json_and_log("products_search", params, payload, status, started_at)
             return
 
         if parsed.path == "/api/exchange":
+            started_at = time.monotonic()
             params = {
                 key: values[0]
                 for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
@@ -382,15 +431,11 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
             except Exception as error:
                 payload = {"ok": False, "error": str(error)}
                 status = HTTPStatus.BAD_GATEWAY
-            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.send_json_and_log("exchange_rate", params, payload, status, started_at)
             return
 
         if parsed.path == "/api/ai-opportunity":
+            started_at = time.monotonic()
             params = {
                 key: values[0]
                 for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
@@ -401,16 +446,11 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
             except Exception as error:
                 payload = {"ok": False, "error": str(error)}
                 status = HTTPStatus.BAD_GATEWAY
-            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.send_json_and_log("ai_opportunity", params, payload, status, started_at)
             return
 
-
         if parsed.path == "/api/bundle-plan":
+            started_at = time.monotonic()
             params = {
                 key: values[0]
                 for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
@@ -421,15 +461,11 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
             except Exception as error:
                 payload = {"ok": False, "error": str(error)}
                 status = HTTPStatus.BAD_GATEWAY
-            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.send_json_and_log("bundle_plan", params, payload, status, started_at)
             return
 
         if parsed.path == "/api/product-hunter":
+            started_at = time.monotonic()
             params = {
                 key: values[0]
                 for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
@@ -446,15 +482,11 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
             except Exception as error:
                 payload = {"ok": False, "error": str(error)}
                 status = HTTPStatus.BAD_GATEWAY
-            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.send_json_and_log("product_hunter", params, payload, status, started_at)
             return
 
         if parsed.path == "/api/market-gaps":
+            started_at = time.monotonic()
             params = {
                 key: values[0]
                 for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
@@ -472,15 +504,11 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
             except Exception as error:
                 payload = {"ok": False, "error": str(error)}
                 status = HTTPStatus.BAD_GATEWAY
-            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.send_json_and_log("market_gaps", params, payload, status, started_at)
             return
 
         if parsed.path == "/api/asin-reviews":
+            started_at = time.monotonic()
             params = {
                 key: values[0]
                 for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
@@ -501,12 +529,7 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
             except Exception as error:
                 payload = {"ok": False, "error": str(error)}
                 status = HTTPStatus.BAD_GATEWAY
-            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self.send_json_and_log("asin_reviews", params, payload, status, started_at)
             return
 
         if parsed.path == "/":
@@ -517,6 +540,11 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
 
 def main():
     args = parse_args()
+    try:
+        ensure_operation_logs_table()
+        print("Operation logs table is ready.")
+    except Exception as error:
+        print(f"Operation logs table setup skipped: {error}")
     server = ThreadingHTTPServer((args.host, args.port), AmazonProductHandler)
     print(f"Amazon product web app running at http://{args.host}:{args.port}")
     server.serve_forever()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import ssl
@@ -10,6 +11,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 ROOT = Path(__file__).resolve().parent
 ENV_FILE = ROOT / ".env"
+SENSITIVE_KEYS = ("password", "pwd", "token", "secret", "api_key", "apikey")
 
 
 def load_env_file(path: Path = ENV_FILE):
@@ -59,7 +61,16 @@ def _safe_url_info(url: str):
     }
 
 
-def check_database_connection(use_direct: bool = False):
+def _ssl_context_from_url(database_url: str):
+    parsed = urlparse(database_url)
+    query = parse_qs(parsed.query)
+    sslmode = (query.get("sslmode") or ["require"])[0]
+    if sslmode in {"verify-ca", "verify-full"}:
+        return ssl.create_default_context()
+    return ssl._create_unverified_context()
+
+
+def connect_database(use_direct: bool = False):
     database_url = get_database_url(use_direct=use_direct)
     if not database_url:
         raise RuntimeError("DATABASE_URL 未配置。")
@@ -70,22 +81,20 @@ def check_database_connection(use_direct: bool = False):
         raise RuntimeError("数据库依赖 pg8000 未安装，请运行 pip install -r requirements.txt。") from error
 
     parsed = urlparse(database_url)
-    query = parse_qs(parsed.query)
-    sslmode = (query.get("sslmode") or ["require"])[0]
-    if sslmode in {"verify-ca", "verify-full"}:
-        ssl_context = ssl.create_default_context()
-    else:
-        ssl_context = ssl._create_unverified_context()
-
-    conn = pg8000.dbapi.connect(
+    return pg8000.dbapi.connect(
         user=unquote(parsed.username or ""),
         password=unquote(parsed.password or ""),
         host=parsed.hostname or "",
         port=parsed.port or 5432,
         database=(parsed.path or "/postgres").lstrip("/"),
         timeout=12,
-        ssl_context=ssl_context,
+        ssl_context=_ssl_context_from_url(database_url),
     )
+
+
+def check_database_connection(use_direct: bool = False):
+    database_url = get_database_url(use_direct=use_direct)
+    conn = connect_database(use_direct=use_direct)
     try:
         cursor = conn.cursor()
         cursor.execute(
@@ -113,3 +122,122 @@ def check_database_connection(use_direct: bool = False):
         "server_port": server_port,
         "version": (version or "").split(",")[0],
     }
+
+
+def ensure_operation_logs_table():
+    conn = connect_database(use_direct=True)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            create table if not exists public.operation_logs (
+              id bigserial primary key,
+              action text not null,
+              method text not null,
+              path text not null,
+              query_params jsonb not null default '{}'::jsonb,
+              success boolean not null default false,
+              status_code integer,
+              duration_ms integer,
+              error text,
+              client_ip text,
+              user_agent text,
+              created_at timestamptz not null default now()
+            )
+            """
+        )
+        cursor.execute(
+            "create index if not exists idx_operation_logs_created_at on public.operation_logs (created_at desc)"
+        )
+        cursor.execute(
+            "create index if not exists idx_operation_logs_action_created_at on public.operation_logs (action, created_at desc)"
+        )
+        conn.commit()
+        cursor.close()
+    finally:
+        conn.close()
+
+
+def _redact_value(value):
+    if value is None:
+        return None
+    text = str(value)
+    if len(text) > 500:
+        return text[:500] + "..."
+    return text
+
+
+def sanitize_params(params):
+    safe = {}
+    for key, value in (params or {}).items():
+        key_text = str(key)
+        if any(flag in key_text.lower() for flag in SENSITIVE_KEYS):
+            safe[key_text] = "***REDACTED***"
+            continue
+        if isinstance(value, (list, tuple)):
+            safe[key_text] = [_redact_value(item) for item in value]
+        else:
+            safe[key_text] = _redact_value(value)
+    return safe
+
+
+def log_operation(
+    *,
+    action: str,
+    method: str,
+    path: str,
+    query_params=None,
+    success: bool,
+    status_code: int,
+    duration_ms: int,
+    error: str = "",
+    client_ip: str = "",
+    user_agent: str = "",
+):
+    conn = connect_database(use_direct=False)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            insert into public.operation_logs (
+              action,
+              method,
+              path,
+              query_params,
+              success,
+              status_code,
+              duration_ms,
+              error,
+              client_ip,
+              user_agent
+            ) values (%s, %s, %s, cast(%s as jsonb), %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                action,
+                method,
+                path,
+                json.dumps(sanitize_params(query_params), ensure_ascii=False),
+                success,
+                int(status_code or 0),
+                int(duration_ms or 0),
+                (error or "")[:1000],
+                client_ip,
+                (user_agent or "")[:500],
+            ),
+        )
+        conn.commit()
+        cursor.close()
+    finally:
+        conn.close()
+
+
+def count_operation_logs():
+    conn = connect_database(use_direct=False)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("select count(*) from public.operation_logs")
+        count = cursor.fetchone()[0]
+        cursor.close()
+        return int(count or 0)
+    finally:
+        conn.close()
