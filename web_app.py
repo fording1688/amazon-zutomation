@@ -3,6 +3,7 @@
 import argparse
 import csv
 import json
+import os
 from urllib.error import HTTPError, URLError
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -26,10 +27,15 @@ DATA_FILE = ROOT / "sample_products.csv"
 def parse_args():
     parser = argparse.ArgumentParser(description="Run the local Amazon product web app.")
     parser.add_argument(
+        "--host",
+        default=os.environ.get("HOST", "127.0.0.1"),
+        help="Host interface to bind. Use 0.0.0.0 on Render.",
+    )
+    parser.add_argument(
         "--port",
         type=int,
-        default=8000,
-        help="Local port for the web server. Defaults to 8000.",
+        default=int(os.environ.get("PORT", "8000")),
+        help="Local port for the web server. Defaults to PORT env or 8000.",
     )
     return parser.parse_args()
 
@@ -396,8 +402,8 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
 
 def main():
     args = parse_args()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), AmazonProductHandler)
-    print(f"Amazon product web app running at http://127.0.0.1:{args.port}")
+    server = ThreadingHTTPServer((args.host, args.port), AmazonProductHandler)
+    print(f"Amazon product web app running at http://{args.host}:{args.port}")
     server.serve_forever()
 
 
