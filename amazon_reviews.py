@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 
+import json
+import os
 from http.client import RemoteDisconnected
 from statistics import mean
 from typing import Dict, List
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from serpapi_amazon import SerpApiAmazonError, request_serpapi_json, to_text
 
@@ -17,6 +21,65 @@ STAR_FILTERS = {
     "four_star": "four_star",
     "five_star": "five_star",
 }
+
+
+TRANSLATE_ENDPOINT = "https://translate.googleapis.com/translate_a/single"
+REVIEW_TRANSLATION_LIMIT = int(os.environ.get("REVIEW_TRANSLATION_LIMIT", "80"))
+
+
+def _extract_google_translation(payload) -> str:
+    parts = []
+    if not isinstance(payload, list) or not payload:
+        return ""
+    for item in payload[0] or []:
+        if isinstance(item, list) and item:
+            parts.append(to_text(item[0]))
+    return "".join(parts).strip()
+
+
+def _translate_to_chinese(text: str) -> str:
+    text = to_text(text)
+    if not text:
+        return ""
+    data = urlencode(
+        {
+            "client": "gtx",
+            "sl": "auto",
+            "tl": "zh-CN",
+            "dt": "t",
+            "q": text[:4500],
+        }
+    ).encode("utf-8")
+    request = Request(
+        TRANSLATE_ENDPOINT,
+        data=data,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+            "User-Agent": "TradeHarbor/1.0",
+        },
+    )
+    with urlopen(request, timeout=12) as response:
+        payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+    return _extract_google_translation(payload)
+
+
+def _translate_reviews_to_chinese(reviews: List[Dict]) -> List[str]:
+    errors = []
+    for index, review in enumerate(reviews):
+        if index >= REVIEW_TRANSLATION_LIMIT:
+            review["body_zh"] = "未翻译：超过本次翻译上限，可调高 REVIEW_TRANSLATION_LIMIT。"
+            continue
+        source_text = review.get("body") or review.get("title") or ""
+        if not source_text:
+            review["body_zh"] = ""
+            continue
+        try:
+            review["body_zh"] = _translate_to_chinese(source_text)
+        except Exception as error:
+            review["body_zh"] = "翻译暂不可用"
+            if len(errors) < 3:
+                errors.append(str(error))
+    return errors
 
 
 def _number(value) -> float:
@@ -76,6 +139,7 @@ def _normalize_review(review: Dict, page: int) -> Dict:
         "rating": rating,
         "title": title,
         "body": body,
+        "body_zh": "",
         "date": to_text(review.get("date") or review.get("review_date")),
         "author": _review_author(review),
         "verified_purchase": verified_text,
@@ -152,6 +216,7 @@ def fetch_asin_reviews(
     filter_by_star: str = "all",
     amazon_domain: str = "amazon.com",
     sort_by: str = "recent",
+    translate_zh: bool = True,
 ) -> Dict:
     asin = asin.strip().upper()
     if not asin:
@@ -201,6 +266,10 @@ def fetch_asin_reviews(
         if fallback.get("error"):
             errors.append(fallback["error"])
 
+    translation_errors = _translate_reviews_to_chinese(reviews) if translate_zh else []
+    if translation_errors:
+        errors.append("中文翻译部分失败：" + "；".join(translation_errors))
+
     ratings = [item["rating"] for item in reviews if item.get("rating")]
     low_rating_count = sum(1 for item in reviews if item.get("rating") and item["rating"] <= 3)
     verified_count = sum(1 for item in reviews if "verified" in item.get("verified_purchase", "").lower() or item.get("verified_purchase") == "Yes")
@@ -220,6 +289,7 @@ def fetch_asin_reviews(
             "sort_by": sort_by,
             "source": source,
             "reviews_engine_supported": not unsupported,
+            "translation_enabled": translate_zh,
         },
         "reviews": reviews,
         "errors": errors,
@@ -227,6 +297,7 @@ def fetch_asin_reviews(
             "SerpApi 的 Amazon Reviews 按页返回；这里会自动翻页到没有下一页或达到最大页数。",
             "如果当前 SerpApi 账号不支持 amazon_reviews，系统会尝试 amazon_product 详情兜底，但可能只能拿到少量评论片段或拿不到完整评论。",
             "如果要稳定抓取完整评论，建议后续接 Rainforest API、Keepa 或支持 Reviews 的 SerpApi 套餐。",
+            "中文评论内容由在线翻译接口生成，适合快速理解，正式分析时建议结合英文原文核对。",
         ],
     }
 

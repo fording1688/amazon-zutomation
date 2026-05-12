@@ -2370,3 +2370,19 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+.reviews-table th:nth-child(4),
+.reviews-table td:nth-child(4) { width: 390px; }
+.reviews-table th:nth-child(5),
+.reviews-table td:nth-child(5) { width: 390px; }
+.reviews-table th:nth-child(6),
+.reviews-table td:nth-child(6) { width: 130px; }
+.reviews-table th:nth-child(7),
+.reviews-table td:nth-child(7) { width: 150px; }
+.reviews-table th:nth-child(10),
+.reviews-table td:nth-child(10) { width: 210px; }
+
+.review-body-zh-cell {
+  color: #fff7d6;
+  background: rgba(251, 191, 36, 0.045);
+}

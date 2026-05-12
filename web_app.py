@@ -373,6 +373,7 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
                         filter_by_star=params.get("filter_by_star") or "all",
                         amazon_domain=params.get("amazon_domain") or "amazon.com",
                         sort_by=params.get("sort_by") or "recent",
+                        translate_zh=(params.get("translate_zh") or "true").lower() != "false",
                     ),
                 }
                 status = HTTPStatus.OK

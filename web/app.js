@@ -713,7 +713,7 @@ function renderReviewStars(rating = 0) {
 
 function renderReviewsRows(reviews = []) {
   if (!reviews.length) {
-    reviewsBody.innerHTML = `<tr><td colspan="9" class="empty-row">没有抓到评论。可以换成 Critical/Positive 筛选，或确认 ASIN 是否正确。</td></tr>`;
+    reviewsBody.innerHTML = `<tr><td colspan="10" class="empty-row">没有抓到评论。可以换成 Critical/Positive 筛选，或确认 ASIN 是否正确。</td></tr>`;
     return;
   }
   reviewsBody.innerHTML = reviews.map((review) => `
@@ -722,6 +722,7 @@ function renderReviewsRows(reviews = []) {
       <td>${renderReviewStars(review.rating)}</td>
       <td><strong>${escapeHTML(review.title || "")}</strong></td>
       <td class="review-body-cell">${escapeHTML(review.body || "")}${review.images && review.images.length ? `<p>${review.images.length} 张图片</p>` : ""}</td>
+      <td class="review-body-cell review-body-zh-cell">${escapeHTML(review.body_zh || "")}</td>
       <td>${escapeHTML(review.date || "")}</td>
       <td>${escapeHTML(review.author || "")}</td>
       <td>${escapeHTML(review.verified_purchase || "")}</td>
@@ -748,7 +749,8 @@ function renderReviewsResult(result = {}) {
   const sourceText = summary.source === "amazon_product_fallback"
     ? "数据源：amazon_product 详情兜底（当前 SerpApi 不支持完整 Reviews engine）"
     : "数据源：amazon_reviews";
-  reviewsNote.textContent = `${sourceText} · 总评论数约 ${Number(summary.total_reviews || 0).toLocaleString()} · 筛选：${summary.filter_by_star || "all"} · 排序：${summary.sort_by || "recent"}。${moreText}${errorText}`;
+  const translateText = summary.translation_enabled ? "已生成中文评论内容" : "未启用中文翻译";
+  reviewsNote.textContent = `${sourceText} · ${translateText} · 总评论数约 ${Number(summary.total_reviews || 0).toLocaleString()} · 筛选：${summary.filter_by_star || "all"} · 排序：${summary.sort_by || "recent"}。${moreText}${errorText}`;
   renderReviewsRows(latestReviews);
 }
 
@@ -785,13 +787,14 @@ function exportReviewsCsv() {
   if (!latestReviews.length) {
     return;
   }
-  const headers = ["ASIN", "页", "评分", "标题", "评论内容", "日期", "作者", "Verified", "Helpful", "变体", "图片数"];
+  const headers = ["ASIN", "页", "评分", "标题", "评论内容", "中文评论内容", "日期", "作者", "Verified", "Helpful", "变体", "图片数"];
   const rows = latestReviews.map((review) => [
     latestReviewsAsin,
     review.page,
     review.rating,
     review.title,
     review.body,
+    review.body_zh,
     review.date,
     review.author,
     review.verified_purchase,
