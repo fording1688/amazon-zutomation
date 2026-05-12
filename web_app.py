@@ -10,8 +10,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
-from ai_opportunity import analyze_ai_opportunity
+from ai_opportunity import analyze_ai_opportunity, build_bundle_plan
+from amazon_reviews import fetch_asin_reviews
 from amazon_scraper import AmazonScraperError, fetch_amazon_rows
+from market_gap import discover_market_gaps
+from product_hunter import analyze_product_hunter
 from serpapi_amazon import SerpApiAmazonError, enrich_rows_with_seller_info, search_display_page
 
 
@@ -273,6 +276,105 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
             }
             try:
                 payload = {"ok": True, "result": analyze_ai_opportunity(params.get("keyword", ""))}
+                status = HTTPStatus.OK
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+
+        if parsed.path == "/api/bundle-plan":
+            params = {
+                key: values[0]
+                for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            }
+            try:
+                payload = {"ok": True, "result": build_bundle_plan(params.get("keyword", ""), params)}
+                status = HTTPStatus.OK
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/api/product-hunter":
+            params = {
+                key: values[0]
+                for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            }
+            try:
+                payload = {
+                    "ok": True,
+                    "result": analyze_product_hunter(
+                        params.get("keyword", ""),
+                        limit=to_int(params.get("limit")) or 20,
+                    ),
+                }
+                status = HTTPStatus.OK
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/api/market-gaps":
+            params = {
+                key: values[0]
+                for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            }
+            try:
+                payload = {
+                    "ok": True,
+                    "result": discover_market_gaps(
+                        params.get("keyword", ""),
+                        limit=to_int(params.get("limit")) or 20,
+                        review_limit=to_int(params.get("review_limit")) or 5,
+                    ),
+                }
+                status = HTTPStatus.OK
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/api/asin-reviews":
+            params = {
+                key: values[0]
+                for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            }
+            try:
+                payload = {
+                    "ok": True,
+                    "result": fetch_asin_reviews(
+                        params.get("asin", ""),
+                        max_pages=to_int(params.get("max_pages")) or 5,
+                        filter_by_star=params.get("filter_by_star") or "all",
+                        amazon_domain=params.get("amazon_domain") or "amazon.com",
+                        sort_by=params.get("sort_by") or "recent",
+                    ),
+                }
                 status = HTTPStatus.OK
             except Exception as error:
                 payload = {"ok": False, "error": str(error)}

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TradeHarbor 跨境生意操作台</title>
-    <link rel="stylesheet" href="/styles.css?v=20260509-14" />
+    <link rel="stylesheet" href="/styles.css?v=20260512-1" />
   </head>
   <body>
     <div class="page-shell">
@@ -59,6 +59,18 @@
             <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="ai-opportunity-panel" data-tab-target="ai-opportunity-panel">
               <span>AI发现机会</span>
               <strong>AI Scout</strong>
+            </button>
+            <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="product-hunter-panel" data-tab-target="product-hunter-panel">
+              <span>赚钱机会</span>
+              <strong>Hunter</strong>
+            </button>
+            <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="market-gap-panel" data-tab-target="market-gap-panel">
+              <span>市场空缺</span>
+              <strong>Gap AI</strong>
+            </button>
+            <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="asin-reviews-panel" data-tab-target="asin-reviews-panel">
+              <span>ASIN评论</span>
+              <strong>Reviews</strong>
             </button>
           </nav>
 
@@ -304,7 +316,7 @@
               <div class="panel-header ai-panel-header">
                 <div>
                   <h2>AI发现机会</h2>
-                  <p>输入 Amazon 关键词，系统自动抓取前 50 个商品，分析竞争、Bundle 空白、利润和新卖家打法。</p>
+                  <p>输入关键词后先得到产品列表；系统会逐个产品判断是否适合做 3pcs / 5pcs / 10pcs，多 PCS 可行的行可以点开查看组合方案。</p>
                 </div>
                 <span class="ai-mode-pill">Local Rules + OpenAI Ready</span>
               </div>
@@ -322,40 +334,37 @@
               <div class="ai-results" id="ai-results" hidden>
                 <div class="ai-score-grid">
                   <article class="ai-score-card">
-                    <span>产品机会评分</span>
+                    <span>Amazon 结果数</span>
                     <strong id="ai-opportunity-score">0</strong>
                   </article>
                   <article class="ai-score-card">
-                    <span>竞争评分</span>
-                    <strong id="ai-competition-score">0</strong>
+                    <span>Top10 均价</span>
+                    <strong id="ai-competition-score">$0</strong>
                   </article>
                   <article class="ai-score-card">
-                    <span>竞争等级</span>
+                    <span>竞争程度</span>
                     <strong id="ai-competition-level">--</strong>
                   </article>
                   <article class="ai-score-card">
-                    <span>推荐组合</span>
-                    <strong id="ai-recommended-bundle">--</strong>
+                    <span>可做多 PCS</span>
+                    <strong id="ai-recommended-bundle">0</strong>
                   </article>
                 </div>
 
-                <div class="ai-report-grid">
-                  <article class="ai-report-card">
-                    <h3>Bundle机会分析</h3>
-                    <div id="ai-bundle-analysis"></div>
-                  </article>
-                  <article class="ai-report-card">
-                    <h3>利润分析</h3>
-                    <div id="ai-profit-analysis"></div>
-                  </article>
-                  <article class="ai-report-card ai-report-wide">
-                    <h3>AI总结</h3>
-                    <div id="ai-summary"></div>
-                  </article>
-                </div>
+                <article class="ai-report-card ai-report-wide keyword-metrics-card">
+                  <h3>关键词相关信息</h3>
+                  <div id="ai-bundle-analysis"></div>
+                  <div id="ai-profit-analysis" hidden></div>
+                  <div id="ai-summary" hidden></div>
+                </article>
+
+                <article class="ai-report-card ai-report-wide bundle-detail-card" id="ai-bundle-detail" hidden>
+                  <h3>组合套装详情</h3>
+                  <div id="ai-bulk-candidates"></div>
+                </article>
 
                 <article class="ai-report-card ai-report-wide">
-                  <h3>产品列表</h3>
+                  <h3>产品列表：逐个判断是否可以多 PCS 组装售卖</h3>
                   <div class="ai-product-table-wrap">
                     <table class="ai-product-table">
                       <thead>
@@ -374,12 +383,245 @@
                           <th>变体</th>
                           <th>多件装</th>
                           <th>类目</th>
+                          <th>多PCS机会</th>
+                          <th>组合方案</th>
                         </tr>
                       </thead>
                       <tbody id="ai-products-body"></tbody>
                     </table>
                   </div>
                 </article>
+              </div>
+            </section>
+          </div>
+
+          <div class="tab-panel" id="product-hunter-panel" role="tabpanel">
+            <section class="panel product-hunter-panel">
+              <div class="hunter-hero">
+                <div>
+                  <span class="hunter-kicker">Amazon AI Product Hunter</span>
+                  <h2>AI 分析赚钱机会</h2>
+                  <p>输入关键词后自动抓取 Amazon 前 20 个产品，逐个判断是否适合做多件装、替代件、组合套装和 FBM 测款。</p>
+                </div>
+                <div class="hunter-flow" aria-label="分析流程">
+                  <span>关键词搜索</span>
+                  <span>获取产品</span>
+                  <span>AI 评分</span>
+                  <span>CSV 导出</span>
+                </div>
+              </div>
+
+              <form id="product-hunter-form" class="product-hunter-form">
+                <label>
+                  <span>关键词</span>
+                  <input type="text" name="keyword" placeholder="请输入关键词，例如 diamond wheel" />
+                </label>
+                <button type="submit" class="primary-btn">AI 分析赚钱机会</button>
+                <button type="button" class="ghost-btn hunter-export-btn" id="hunter-export-btn" disabled>导出 CSV</button>
+              </form>
+
+              <div class="hunter-status" id="hunter-status">输入关键词后开始分析。第一版先做快速 MVP，不使用数据库。</div>
+
+              <div class="hunter-results" id="hunter-results" hidden>
+                <div class="hunter-summary-grid">
+                  <article>
+                    <span>Amazon 总结果</span>
+                    <strong id="hunter-total-results">0</strong>
+                  </article>
+                  <article>
+                    <span>样本商品</span>
+                    <strong id="hunter-sample-size">0</strong>
+                  </article>
+                  <article>
+                    <span>Top10 均价</span>
+                    <strong id="hunter-avg-price">$0</strong>
+                  </article>
+                  <article>
+                    <span>Top10 均 Review</span>
+                    <strong id="hunter-avg-review">0</strong>
+                  </article>
+                  <article>
+                    <span>多件装候选</span>
+                    <strong id="hunter-bundle-count">0</strong>
+                  </article>
+                  <article>
+                    <span>竞争程度</span>
+                    <strong id="hunter-competition-level">--</strong>
+                  </article>
+                </div>
+
+                <div class="hunter-note" id="hunter-note">机会评分规则：FBM 友好度、耗材属性、多件装适配、竞争、价格空间和评论压力。</div>
+
+                <div class="hunter-table-wrap">
+                  <table class="hunter-table">
+                    <thead>
+                      <tr>
+                        <th>图片</th>
+                        <th>标题</th>
+                        <th>ASIN</th>
+                        <th>价格</th>
+                        <th>评分</th>
+                        <th>评论数</th>
+                        <th>链接</th>
+                        <th>机会评分</th>
+                        <th>是否适合多件装</th>
+                        <th>建议组合方式</th>
+                        <th>建议售价</th>
+                        <th>预估利润率</th>
+                        <th>AI分析理由</th>
+                      </tr>
+                    </thead>
+                    <tbody id="hunter-products-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="tab-panel" id="market-gap-panel" role="tabpanel">
+            <section class="panel market-gap-panel">
+              <div class="gap-hero">
+                <div>
+                  <span class="gap-kicker">AI Market Gap Discovery</span>
+                  <h2>AI 自动发现 Amazon 市场空缺</h2>
+                  <p>重点不是普通查销量，而是识别“用户有需求，但现有卖家满足得不好”的供给缺陷：多件装、组合装、OEM 替代、特殊规格和 Review 痛点。</p>
+                </div>
+                <div class="gap-orbit" aria-hidden="true">
+                  <span>Supply Gap</span>
+                  <strong>缺口</strong>
+                </div>
+              </div>
+
+              <form id="market-gap-form" class="market-gap-form">
+                <label>
+                  <span>关键词</span>
+                  <input type="text" name="keyword" placeholder="如 diamond wheel / glass grinder / cbn wheel" />
+                </label>
+                <button type="submit" class="primary-btn">AI 分析市场空缺</button>
+              </form>
+
+              <div class="market-gap-status" id="market-gap-status">输入关键词后，系统会抓取 Amazon 结果并尝试分析 Review 痛点。</div>
+
+              <div class="market-gap-results" id="market-gap-results" hidden>
+                <div class="gap-summary-grid">
+                  <article><span>Amazon 总结果</span><strong id="gap-total-results">0</strong></article>
+                  <article><span>样本数</span><strong id="gap-sample-size">0</strong></article>
+                  <article><span>高分机会</span><strong id="gap-high-count">0</strong></article>
+                  <article><span>多件装机会</span><strong id="gap-multipack-count">0</strong></article>
+                  <article><span>组合装机会</span><strong id="gap-bundle-count">0</strong></article>
+                  <article><span>替代件机会</span><strong id="gap-replacement-count">0</strong></article>
+                </div>
+
+                <article class="gap-insight-card">
+                  <h3>AI 识别到的主要供给缺陷</h3>
+                  <div id="gap-top-list" class="gap-chip-list"></div>
+                  <p id="gap-note">系统会优先寻找：只有单件装、缺少套装、OEM 价格高、特殊规格长尾、Review 抱怨明显的产品定位。</p>
+                </article>
+
+                <div class="market-gap-table-wrap">
+                  <table class="market-gap-table">
+                    <thead>
+                      <tr>
+                        <th>图片</th>
+                        <th>标题</th>
+                        <th>ASIN</th>
+                        <th>价格</th>
+                        <th>Review</th>
+                        <th>Opportunity Score</th>
+                        <th>多件装机会</th>
+                        <th>组合装机会</th>
+                        <th>替代件机会</th>
+                        <th>AI分析</th>
+                        <th>风险</th>
+                        <th>建议方案</th>
+                      </tr>
+                    </thead>
+                    <tbody id="market-gap-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="tab-panel" id="asin-reviews-panel" role="tabpanel">
+            <section class="panel asin-reviews-panel">
+              <div class="reviews-hero">
+                <div>
+                  <span class="reviews-kicker">Amazon Review Collector</span>
+                  <h2>通过 ASIN 获取产品评论</h2>
+                  <p>输入产品 ASIN 后自动调用 Amazon Reviews 接口翻页抓取评论，适合后续做 2-3 星差评痛点分析、质量问题归纳和 Listing 优化。</p>
+                </div>
+                <div class="reviews-badge">
+                  <span>Review Data</span>
+                  <strong>ASIN</strong>
+                </div>
+              </div>
+
+              <form id="asin-reviews-form" class="asin-reviews-form">
+                <label>
+                  <span>产品 ASIN</span>
+                  <input type="text" name="asin" placeholder="如 B0B3CNPBJ3" />
+                </label>
+                <label>
+                  <span>最大页数</span>
+                  <input type="number" name="max_pages" min="1" max="20" value="5" />
+                </label>
+                <label>
+                  <span>星级筛选</span>
+                  <select name="filter_by_star">
+                    <option value="all">全部评论</option>
+                    <option value="critical">Critical 差评/中评</option>
+                    <option value="positive">Positive 好评</option>
+                    <option value="one_star">1 星</option>
+                    <option value="two_star">2 星</option>
+                    <option value="three_star">3 星</option>
+                    <option value="four_star">4 星</option>
+                    <option value="five_star">5 星</option>
+                  </select>
+                </label>
+                <label>
+                  <span>排序</span>
+                  <select name="sort_by">
+                    <option value="recent">最新</option>
+                    <option value="helpful">最有帮助</option>
+                  </select>
+                </label>
+                <button type="submit" class="primary-btn">获取评论</button>
+                <button type="button" class="ghost-btn" id="reviews-export-btn" disabled>导出 CSV</button>
+              </form>
+
+              <div class="reviews-status" id="reviews-status">输入 ASIN 后开始抓取评论。提示：页数越多，SerpApi 消耗越多。</div>
+
+              <div class="reviews-results" id="reviews-results" hidden>
+                <div class="reviews-summary-grid">
+                  <article><span>ASIN</span><strong id="reviews-asin">--</strong></article>
+                  <article><span>已抓评论</span><strong id="reviews-count">0</strong></article>
+                  <article><span>已抓页数</span><strong id="reviews-pages">0</strong></article>
+                  <article><span>平均评分</span><strong id="reviews-average">0</strong></article>
+                  <article><span>低分评论</span><strong id="reviews-low-count">0</strong></article>
+                  <article><span>Verified</span><strong id="reviews-verified-count">0</strong></article>
+                </div>
+
+                <div class="reviews-note" id="reviews-note">评论会按页展示；如果还有更多评论，可以提高最大页数继续抓。</div>
+
+                <div class="reviews-table-wrap">
+                  <table class="reviews-table">
+                    <thead>
+                      <tr>
+                        <th>页</th>
+                        <th>评分</th>
+                        <th>标题</th>
+                        <th>评论内容</th>
+                        <th>日期</th>
+                        <th>作者</th>
+                        <th>Verified</th>
+                        <th>Helpful</th>
+                        <th>变体</th>
+                      </tr>
+                    </thead>
+                    <tbody id="reviews-body"></tbody>
+                  </table>
+                </div>
               </div>
             </section>
           </div>
@@ -460,6 +702,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=20260509-14"></script>
+    <script src="/app.js?v=20260512-1"></script>
   </body>
 </html>
