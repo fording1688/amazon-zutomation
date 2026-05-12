@@ -1,2 +1,1 @@
-# No third-party Python dependencies required.
-# The web app currently uses only the Python standard library.
+PyMuPDF==1.24.14

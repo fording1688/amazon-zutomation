@@ -6,3 +6,4 @@ amazon_results*.json
 amazon_test_results.csv
 
 .DS_Store
+web/generated/

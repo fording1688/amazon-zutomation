@@ -26,6 +26,8 @@ const swapWeightButton = document.querySelector("#swap-weight-btn");
 const dimensionForm = document.querySelector("#dimension-form");
 const dimensionResult = document.querySelector("#dimension-result");
 const swapDimensionButton = document.querySelector("#swap-dimension-btn");
+const pdfOriginForm = document.querySelector("#pdf-origin-form");
+const pdfOriginResult = document.querySelector("#pdf-origin-result");
 const aiOpportunityForm = document.querySelector("#ai-opportunity-form");
 const aiStatus = document.querySelector("#ai-status");
 const aiResults = document.querySelector("#ai-results");
@@ -196,6 +198,52 @@ async function convertExchangeRate() {
     exchangeResult.classList.remove("is-loading");
     exchangeResult.innerHTML = `
       <span>汇率获取失败</span>
+      <strong>--</strong>
+      <p>${escapeHTML(error.message)}</p>
+    `;
+  }
+}
+
+async function generateMadeInChinaPdf() {
+  const file = pdfOriginForm.elements.pdf.files[0];
+  if (!file) {
+    pdfOriginResult.innerHTML = `
+      <span>还没有选择文件</span>
+      <strong>请选择 PDF</strong>
+      <p>上传 Amazon 标签 PDF 后再生成。</p>
+    `;
+    return;
+  }
+
+  const data = new FormData(pdfOriginForm);
+  pdfOriginResult.classList.add("is-loading");
+  pdfOriginResult.innerHTML = `
+    <span>正在处理 PDF...</span>
+    <strong>请稍等</strong>
+    <p>系统正在识别标签位置并写入 Made In China。</p>
+  `;
+
+  try {
+    const response = await fetch("/api/pdf-made-in-china", {
+      method: "POST",
+      body: data,
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    const result = payload.result;
+    pdfOriginResult.classList.remove("is-loading");
+    pdfOriginResult.innerHTML = `
+      <span>生成完成</span>
+      <strong>${Number(result.labels_detected || 0).toLocaleString()} 个标签</strong>
+      <p>${escapeHTML(result.message || "已生成新 PDF。")}</p>
+      <a class="download-link" href="${escapeHTML(result.file_url)}" target="_blank" rel="noreferrer" download>下载新 PDF</a>
+    `;
+  } catch (error) {
+    pdfOriginResult.classList.remove("is-loading");
+    pdfOriginResult.innerHTML = `
+      <span>PDF 处理失败</span>
       <strong>--</strong>
       <p>${escapeHTML(error.message)}</p>
     `;
@@ -745,12 +793,15 @@ function renderReviewsResult(result = {}) {
   reviewsLowCount.textContent = Number(summary.low_rating_count || 0).toLocaleString();
   reviewsVerifiedCount.textContent = Number(summary.verified_count || 0).toLocaleString();
   const moreText = summary.has_more ? "当前达到最大页数但仍可能有更多评论；可提高最大页数继续抓。" : "已抓到当前可分页范围内的评论，或没有下一页。";
-  const errorText = result.errors && result.errors.length ? ` 部分页面失败：${result.errors.join("；")}` : "";
+  const unsupportedReviewsEngine = summary.reviews_engine_supported === false;
   const sourceText = summary.source === "amazon_product_fallback"
-    ? "数据源：amazon_product 详情兜底（当前 SerpApi 不支持完整 Reviews engine）"
-    : "数据源：amazon_reviews";
+    ? "当前 SerpApi 不支持完整 Reviews 接口，已自动使用商品详情页评论片段兜底"
+    : "数据源：amazon_reviews 完整评论接口";
   const translateText = summary.translation_enabled ? "已生成中文评论内容" : "未启用中文翻译";
-  reviewsNote.textContent = `${sourceText} · ${translateText} · 总评论数约 ${Number(summary.total_reviews || 0).toLocaleString()} · 筛选：${summary.filter_by_star || "all"} · 排序：${summary.sort_by || "recent"}。${moreText}${errorText}`;
+  const errorText = result.errors && result.errors.length && !unsupportedReviewsEngine
+    ? ` 部分页面暂时失败，已展示成功抓到的评论。`
+    : "";
+  reviewsNote.textContent = `${sourceText} · ${translateText} · 当前展示 ${Number(summary.fetched_count || 0).toLocaleString()} 条 · 筛选：${summary.filter_by_star || "all"} · 排序：${summary.sort_by || "recent"}。${moreText}${errorText}`;
   renderReviewsRows(latestReviews);
 }
 
@@ -1017,6 +1068,11 @@ reviewsExportButton.addEventListener("click", exportReviewsCsv);
 exchangeForm.addEventListener("submit", (event) => {
   event.preventDefault();
   convertExchangeRate();
+});
+
+pdfOriginForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  generateMadeInChinaPdf();
 });
 
 swapCurrencyButton.addEventListener("click", () => {

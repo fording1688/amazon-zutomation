@@ -775,6 +775,60 @@ table {
 }
 
 
+.pdf-card {
+  grid-column: 1 / -1;
+  background:
+    radial-gradient(circle at 88% 12%, rgba(36, 106, 95, 0.12), transparent 34%),
+    rgba(255, 255, 255, 0.7);
+}
+
+.pdf-origin-form {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.6fr) minmax(170px, 0.8fr) minmax(110px, 0.4fr) minmax(150px, 0.55fr);
+  align-items: end;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.pdf-origin-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.pdf-origin-form label span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.pdf-origin-form input[type="file"] {
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.pdf-result {
+  background: linear-gradient(135deg, #17212b, #246a5f);
+}
+
+.pdf-result .download-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 14px;
+  padding: 11px 14px;
+  border-radius: 999px;
+  color: #08211f;
+  background: #9ff6e8;
+  text-decoration: none;
+  font-weight: 900;
+}
+
+@media (max-width: 1000px) {
+  .pdf-origin-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+
 .ai-panel {
   position: relative;
   overflow: hidden;

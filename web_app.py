@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import os
+import re
 from urllib.error import HTTPError, URLError
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +16,7 @@ from ai_opportunity import analyze_ai_opportunity, build_bundle_plan
 from amazon_reviews import fetch_asin_reviews
 from amazon_scraper import AmazonScraperError, fetch_amazon_rows
 from market_gap import discover_market_gaps
+from pdf_made_in_china import add_made_in_china_to_pdf
 from product_hunter import analyze_product_hunter
 from serpapi_amazon import SerpApiAmazonError, enrich_rows_with_seller_info, search_display_page
 
@@ -22,6 +24,8 @@ from serpapi_amazon import SerpApiAmazonError, enrich_rows_with_seller_info, sea
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web"
 DATA_FILE = ROOT / "sample_products.csv"
+GENERATED_DIR = WEB_DIR / "generated"
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 def parse_args():
@@ -239,6 +243,97 @@ def fetch_exchange_rate(params):
 class AmazonProductHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(WEB_DIR), **kwargs)
+
+    def send_json(self, payload, status=HTTPStatus.OK):
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def parse_multipart_form(self):
+        content_type = self.headers.get("Content-Type", "")
+        if "multipart/form-data" not in content_type:
+            raise ValueError("请使用表单上传 PDF 文件。")
+
+        boundary_match = re.search(r"boundary=(?:\"([^\"]+)\"|([^;]+))", content_type)
+        if not boundary_match:
+            raise ValueError("上传请求缺少 multipart boundary。")
+        boundary = (boundary_match.group(1) or boundary_match.group(2)).strip()
+
+        content_length = int(self.headers.get("Content-Length", "0") or 0)
+        if content_length <= 0:
+            raise ValueError("上传文件为空。")
+        if content_length > MAX_UPLOAD_BYTES:
+            raise ValueError("PDF 文件过大，请控制在 25MB 以内。")
+
+        body = self.rfile.read(content_length)
+        fields = {}
+        files = {}
+        for raw_part in body.split(("--" + boundary).encode("utf-8")):
+            part = raw_part
+            if part.startswith(b"\r\n"):
+                part = part[2:]
+            if part.endswith(b"\r\n"):
+                part = part[:-2]
+            if not part or part == b"--":
+                continue
+            if part.endswith(b"--"):
+                part = part[:-2]
+                if part.endswith(b"\r\n"):
+                    part = part[:-2]
+
+            header_blob, separator, value = part.partition(b"\r\n\r\n")
+            if not separator:
+                continue
+
+            headers = header_blob.decode("utf-8", errors="ignore").split("\r\n")
+            disposition = next(
+                (line for line in headers if line.lower().startswith("content-disposition:")),
+                "",
+            )
+            name_match = re.search(r'name="([^"]+)"', disposition)
+            if not name_match:
+                continue
+            name = name_match.group(1)
+            filename_match = re.search(r'filename="([^"]*)"', disposition)
+            if filename_match:
+                files[name] = {
+                    "filename": filename_match.group(1),
+                    "content": value,
+                }
+            else:
+                fields[name] = value.decode("utf-8", errors="ignore").strip()
+
+        return fields, files
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/pdf-made-in-china":
+            try:
+                fields, files = self.parse_multipart_form()
+                uploaded_pdf = files.get("pdf") or files.get("file")
+                if not uploaded_pdf:
+                    raise ValueError("请先选择一个 PDF 文件。")
+                filename = uploaded_pdf.get("filename") or "labels.pdf"
+                if not filename.lower().endswith(".pdf"):
+                    raise ValueError("当前只支持上传 PDF 文件。")
+
+                result = add_made_in_china_to_pdf(
+                    uploaded_pdf.get("content", b""),
+                    GENERATED_DIR,
+                    text=fields.get("text") or "Made In China",
+                    font_size=to_float(fields.get("font_size")) or 8,
+                )
+                result["file_url"] = f"/generated/{result['output_name']}"
+                result["message"] = f"已识别 {result['labels_detected']} 个标签，并写入 Made In China。"
+                self.send_json({"ok": True, "result": result})
+            except Exception as error:
+                self.send_json({"ok": False, "error": str(error)}, HTTPStatus.BAD_REQUEST)
+            return
+
+        self.send_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def do_GET(self):
         parsed = urlparse(self.path)

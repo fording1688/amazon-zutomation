@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TradeHarbor 跨境生意操作台</title>
-    <link rel="stylesheet" href="/styles.css?v=20260512-2" />
+    <link rel="stylesheet" href="/styles.css?v=20260512-3" />
   </head>
   <body>
     <div class="page-shell">
@@ -300,6 +300,35 @@
                     <span>尺寸换算结果</span>
                     <strong>25.4 mm = 1 inch</strong>
                     <p>常用于商品尺寸、包装尺寸和物流体积计算。</p>
+                  </div>
+                </article>
+
+                <article class="exchange-card pdf-card">
+                  <div class="exchange-head">
+                    <span>PDF Label Tool</span>
+                    <strong>标签 PDF 加产地</strong>
+                  </div>
+
+                  <form id="pdf-origin-form" class="pdf-origin-form" enctype="multipart/form-data">
+                    <label class="pdf-upload-field">
+                      <span>上传 Amazon 标签 PDF</span>
+                      <input type="file" name="pdf" accept="application/pdf,.pdf" />
+                    </label>
+                    <label>
+                      <span>写入文字</span>
+                      <input type="text" name="text" value="Made In China" />
+                    </label>
+                    <label>
+                      <span>字号</span>
+                      <input type="number" name="font_size" min="5" max="16" step="0.5" value="8" />
+                    </label>
+                    <button type="submit" class="primary-btn">生成新 PDF</button>
+                  </form>
+
+                  <div class="exchange-result pdf-result" id="pdf-origin-result">
+                    <span>PDF 处理结果</span>
+                    <strong>等待上传</strong>
+                    <p>系统会自动识别每个标签的“新品”或 ASIN/条码编号位置，把 Made In China 写到空白处。</p>
                   </div>
                 </article>
 
@@ -703,6 +732,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=20260512-2"></script>
+    <script src="/app.js?v=20260512-3"></script>
   </body>
 </html>
