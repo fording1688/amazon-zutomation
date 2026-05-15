@@ -5,6 +5,9 @@ import csv
 import json
 import os
 import re
+import socket
+import subprocess
+import sys
 import time
 from urllib.error import HTTPError, URLError
 from http import HTTPStatus
@@ -20,7 +23,7 @@ from database import count_operation_logs, check_database_connection, ensure_ope
 from market_gap import discover_market_gaps
 from pdf_made_in_china import add_made_in_china_to_pdf
 from product_hunter import analyze_product_hunter
-from serpapi_amazon import SerpApiAmazonError, enrich_rows_with_seller_info, search_display_page
+from serpapi_amazon import SerpApiAmazonError, enrich_rows_with_seller_info, request_serpapi_json, search_display_page, to_text
 
 
 ROOT = Path(__file__).resolve().parent
@@ -28,6 +31,10 @@ WEB_DIR = ROOT / "web"
 DATA_FILE = ROOT / "sample_products.csv"
 GENERATED_DIR = WEB_DIR / "generated"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+VIDEO_REMIX_DIR = ROOT / "video-remix-api"
+VIDEO_REMIX_PORT = int(os.environ.get("VIDEO_REMIX_PORT", "8010"))
+VIDEO_REMIX_PROCESS = None
+VIDEO_REMIX_LOG = VIDEO_REMIX_DIR / "outputs" / "service.log"
 
 
 def parse_args():
@@ -72,6 +79,77 @@ def to_int(value):
 def is_prime(value):
     return normalize_text(value) in {"yes", "y", "true", "1", "prime"}
 
+
+
+def _find_first_dict(payload, keys):
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, dict):
+            return value
+    return payload
+
+
+def _extract_bullets(product):
+    candidates = [
+        product.get("feature_bullets"),
+        product.get("feature_bullets_flat"),
+        product.get("about_this_item"),
+        product.get("features"),
+        product.get("bullet_points"),
+    ]
+    bullets = []
+    for candidate in candidates:
+        if isinstance(candidate, list):
+            bullets.extend(to_text(item) for item in candidate if to_text(item))
+        elif isinstance(candidate, dict):
+            for value in candidate.values():
+                if isinstance(value, list):
+                    bullets.extend(to_text(item) for item in value if to_text(item))
+                elif to_text(value):
+                    bullets.append(to_text(value))
+        elif to_text(candidate):
+            bullets.extend(part.strip() for part in re.split(r"[\n•]+", to_text(candidate)) if part.strip())
+    seen = set()
+    unique = []
+    for bullet in bullets:
+        key = bullet.lower()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(bullet)
+    return unique[:8]
+
+
+def fetch_asin_product_detail(params):
+    asin = (params.get("asin") or "").strip().upper()
+    if not asin:
+        raise ValueError("asin is required")
+    payload = request_serpapi_json({
+        "engine": "amazon_product",
+        "asin": asin,
+        "amazon_domain": params.get("amazon_domain") or "amazon.com",
+        "language": params.get("language") or "en_US",
+        "device": params.get("device") or "desktop",
+    })
+    product = _find_first_dict(payload, ["product_results", "product", "product_information"])
+    title = to_text(product.get("title") or payload.get("title"))
+    price = product.get("extracted_price") or product.get("price") or payload.get("price")
+    rating = product.get("rating") or payload.get("rating")
+    reviews = product.get("reviews") or product.get("reviews_count") or payload.get("reviews")
+    description = to_text(product.get("description") or product.get("product_description") or payload.get("description"))
+    return {
+        "asin": asin,
+        "title": title,
+        "brand": to_text(product.get("brand") or product.get("manufacturer") or payload.get("brand")),
+        "price": str(price or ""),
+        "rating": str(rating or ""),
+        "reviews": str(reviews or ""),
+        "feature_bullets": _extract_bullets(product),
+        "description": description,
+        "category": to_text(product.get("category") or product.get("categories") or payload.get("category")),
+        "product_url": to_text(product.get("link") or product.get("product_link") or payload.get("search_metadata", {}).get("amazon_url")),
+        "image_url": to_text(product.get("main_image") or product.get("thumbnail") or product.get("image")),
+        "data_source": "SerpApi amazon_product",
+    }
 
 def read_rows():
     with DATA_FILE.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -242,6 +320,108 @@ def fetch_exchange_rate(params):
     }
 
 
+def is_port_open(host="127.0.0.1", port=VIDEO_REMIX_PORT):
+    try:
+        with socket.create_connection((host, port), timeout=0.4):
+            return True
+    except OSError:
+        return False
+
+
+def tail_text(path, max_chars=3000):
+    try:
+        if not path.exists():
+            return ""
+        data = path.read_text(encoding="utf-8", errors="ignore")
+        return data[-max_chars:]
+    except Exception:
+        return ""
+
+
+def video_remix_status_payload():
+    global VIDEO_REMIX_PROCESS
+    managed_running = bool(VIDEO_REMIX_PROCESS and VIDEO_REMIX_PROCESS.poll() is None)
+    port_running = is_port_open(port=VIDEO_REMIX_PORT)
+    if VIDEO_REMIX_PROCESS and VIDEO_REMIX_PROCESS.poll() is not None:
+        VIDEO_REMIX_PROCESS = None
+    return {
+        "running": managed_running or port_running,
+        "managed": managed_running,
+        "port": VIDEO_REMIX_PORT,
+        "url": f"http://127.0.0.1:{VIDEO_REMIX_PORT}",
+        "log_tail": tail_text(VIDEO_REMIX_LOG),
+    }
+
+
+def start_video_remix_service():
+    global VIDEO_REMIX_PROCESS
+    status = video_remix_status_payload()
+    if status["running"]:
+        return {"ok": True, "result": status, "message": "8010 服务已经在运行。"}
+    if not VIDEO_REMIX_DIR.exists():
+        raise RuntimeError("video-remix-api 目录不存在。")
+
+    VIDEO_REMIX_LOG.parent.mkdir(parents=True, exist_ok=True)
+    python_bin = VIDEO_REMIX_DIR / ".venv" / "bin" / "python"
+    python_cmd = str(python_bin) if python_bin.exists() else sys.executable
+    command = [
+        python_cmd,
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(VIDEO_REMIX_PORT),
+    ]
+    env = os.environ.copy()
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    with VIDEO_REMIX_LOG.open("a", encoding="utf-8") as log_file:
+        log_file.write("\n--- starting video-remix-api ---\n")
+        log_file.write(" ".join(command) + "\n")
+        log_file.flush()
+        VIDEO_REMIX_PROCESS = subprocess.Popen(
+            command,
+            cwd=str(VIDEO_REMIX_DIR),
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+        )
+
+    time.sleep(1.0)
+    if VIDEO_REMIX_PROCESS.poll() is not None and not is_port_open(port=VIDEO_REMIX_PORT):
+        exit_code = VIDEO_REMIX_PROCESS.returncode
+        VIDEO_REMIX_PROCESS = None
+        raise RuntimeError(
+            "8010 服务启动失败。请先安装依赖：cd video-remix-api && pip install -r requirements.txt。"
+            f" 退出码：{exit_code}。日志：{tail_text(VIDEO_REMIX_LOG, 1200)}"
+        )
+    return {"ok": True, "result": video_remix_status_payload(), "message": "8010 服务已启动。"}
+
+
+def stop_video_remix_service():
+    global VIDEO_REMIX_PROCESS
+    if not VIDEO_REMIX_PROCESS or VIDEO_REMIX_PROCESS.poll() is not None:
+        VIDEO_REMIX_PROCESS = None
+        if is_port_open(port=VIDEO_REMIX_PORT):
+            return {
+                "ok": False,
+                "result": video_remix_status_payload(),
+                "error": "检测到 8010 端口有服务在运行，但不是当前页面启动的进程，无法安全关闭。",
+            }
+        return {"ok": True, "result": video_remix_status_payload(), "message": "8010 服务当前未运行。"}
+
+    VIDEO_REMIX_PROCESS.terminate()
+    try:
+        VIDEO_REMIX_PROCESS.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        VIDEO_REMIX_PROCESS.kill()
+        VIDEO_REMIX_PROCESS.wait(timeout=3)
+    VIDEO_REMIX_PROCESS = None
+    return {"ok": True, "result": video_remix_status_payload(), "message": "8010 服务已关闭。"}
+
+
 class AmazonProductHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(WEB_DIR), **kwargs)
@@ -334,6 +514,32 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         started_at = time.monotonic()
         parsed = urlparse(self.path)
+        if parsed.path == "/api/video-remix-service":
+            params = {}
+            try:
+                content_length = int(self.headers.get("Content-Length", "0") or 0)
+                body = self.rfile.read(content_length) if content_length else b"{}"
+                try:
+                    payload_in = json.loads(body.decode("utf-8") or "{}")
+                except json.JSONDecodeError:
+                    payload_in = {}
+                action = (payload_in.get("action") or "status").strip().lower()
+                params = {"action": action}
+                if action == "start":
+                    payload = start_video_remix_service()
+                    status = HTTPStatus.OK if payload.get("ok") else HTTPStatus.BAD_REQUEST
+                elif action == "stop":
+                    payload = stop_video_remix_service()
+                    status = HTTPStatus.OK if payload.get("ok") else HTTPStatus.BAD_REQUEST
+                else:
+                    payload = {"ok": True, "result": video_remix_status_payload()}
+                    status = HTTPStatus.OK
+            except Exception as error:
+                payload = {"ok": False, "error": str(error), "result": video_remix_status_payload()}
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json_and_log("video_remix_service", params, payload, status, started_at)
+            return
+
         if parsed.path == "/api/pdf-made-in-china":
             params = {}
             try:
@@ -371,6 +577,14 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+
+        if parsed.path == "/api/video-remix-service":
+            started_at = time.monotonic()
+            params = {}
+            payload = {"ok": True, "result": video_remix_status_payload()}
+            status = HTTPStatus.OK
+            self.send_json_and_log("video_remix_service_status", params, payload, status, started_at)
+            return
 
         if parsed.path == "/api/db-health":
             started_at = time.monotonic()
@@ -412,10 +626,30 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
             }
             try:
                 payload = {"ok": True, **filter_rows(params)}
-                status = HTTPStatus.OK
             except Exception as error:
-                payload = {"ok": False, "error": str(error), "summary": {}, "items": []}
-                status = HTTPStatus.BAD_GATEWAY
+                payload = {
+                    "ok": True,
+                    "summary": {
+                        "count": 0,
+                        "dataset_count": 0,
+                        "page": to_int(params.get("page")) or 1,
+                        "page_size": to_int(params.get("page_size")) or 30,
+                        "total_results": 0,
+                        "total_pages": 0,
+                        "has_next": False,
+                        "average_price": 0,
+                        "average_rating": 0,
+                        "prime_ratio": 0,
+                        "data_source": "SerpApi Amazon Search API",
+                        "mode": params.get("data_source") or "serpapi",
+                        "error": f"查询接口临时失败：{error}",
+                        "seller_filter_applied": False,
+                        "seller_filter_no_match": False,
+                        "sample_keywords": ["earbuds", "laptop", "keyboard", "matcha", "projector", "bottle"],
+                    },
+                    "items": [],
+                }
+            status = HTTPStatus.OK
             self.send_json_and_log("products_search", params, payload, status, started_at)
             return
 
@@ -505,6 +739,39 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
                 payload = {"ok": False, "error": str(error)}
                 status = HTTPStatus.BAD_GATEWAY
             self.send_json_and_log("market_gaps", params, payload, status, started_at)
+            return
+
+
+        if parsed.path == "/api/asin-product":
+            started_at = time.monotonic()
+            params = {
+                key: values[0]
+                for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            }
+            try:
+                payload = {"ok": True, "result": fetch_asin_product_detail(params)}
+            except Exception as error:
+                fallback_asin = (params.get("asin") or "").strip().upper()
+                payload = {
+                    "ok": True,
+                    "warning": f"ASIN 商品详情临时获取失败：{error}",
+                    "result": {
+                        "asin": fallback_asin,
+                        "title": "",
+                        "brand": "",
+                        "price": "",
+                        "rating": "",
+                        "reviews": "",
+                        "feature_bullets": [],
+                        "description": "",
+                        "category": "",
+                        "product_url": "",
+                        "image_url": "",
+                        "data_source": "fallback",
+                    },
+                }
+            status = HTTPStatus.OK
+            self.send_json_and_log("asin_product", params, payload, status, started_at)
             return
 
         if parsed.path == "/api/asin-reviews":
