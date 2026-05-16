@@ -4,10 +4,237 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TradeHarbor 跨境生意操作台</title>
-    <link rel="stylesheet" href="/styles.css?v=20260512-4" />
+    <link rel="stylesheet" href="/styles.css?v=20260514-batch-video" />
   </head>
   <body>
-    <div class="page-shell">
+    <section class="platform-gateway" id="platform-gateway" aria-label="平台入口向导">
+      <div class="gateway-orb gateway-orb-left" aria-hidden="true"></div>
+      <div class="gateway-orb gateway-orb-right" aria-hidden="true"></div>
+
+      <div class="gateway-shell">
+        <div class="gateway-brand">
+          <div class="brand-mark gateway-mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64" role="img">
+              <circle cx="32" cy="32" r="27" fill="none" stroke="currentColor" stroke-width="4" />
+              <path d="M18 35 32 14l14 21-14 15-14-15Z" fill="currentColor" opacity="0.95" />
+              <path d="M25 34h14M28 39h8" stroke="#fff8ec" stroke-width="3" stroke-linecap="round" />
+            </svg>
+          </div>
+          <div>
+            <p class="brand-kicker">TradeHarbor</p>
+            <strong>跨境生意操作台</strong>
+          </div>
+        </div>
+
+        <div class="gateway-hero">
+          <p class="gateway-eyebrow">Choose Your Growth Channel</p>
+          <h1>选择一个平台，进入你的跨境作战空间</h1>
+          <p>先从 Amazon 选品、卖家分析和工具流开始；后续 TikTok 与 Facebook 可以继续扩展广告、内容和素材工作台。</p>
+        </div>
+
+        <div class="platform-grid" aria-label="平台功能入口">
+          <button class="platform-card platform-amazon" type="button" data-platform-entry="amazon">
+            <span class="platform-icon" aria-hidden="true">A</span>
+            <small>Marketplace OS</small>
+            <strong>亚马逊</strong>
+            <p>进入当前 Amazon 搜索、AI 选品、评论抓取和实用工具系统。</p>
+            <em>进入系统</em>
+          </button>
+
+          <button class="platform-card platform-tiktok" type="button" data-platform-entry="tiktok">
+            <span class="platform-icon" aria-hidden="true">T</span>
+            <small>Content Commerce</small>
+            <strong>TikTok</strong>
+            <p>进入合规二创视频工厂：上传产品视频，生成新脚本、旁白、字幕和竖屏成片。</p>
+            <em>进入工厂</em>
+          </button>
+
+          <button class="platform-card platform-facebook" type="button" data-platform-entry="facebook">
+            <span class="platform-icon" aria-hidden="true">F</span>
+            <small>Ads & Audience</small>
+            <strong>Facebook</strong>
+            <p>预留广告素材库、受众测试、落地页和 Meta 广告数据模块。</p>
+            <em>即将接入</em>
+          </button>
+        </div>
+
+        <div class="gateway-status" id="gateway-status">当前已开放：Amazon 工作台。</div>
+      </div>
+    </section>
+
+    <section class="tiktok-shell" id="tiktok-shell" hidden>
+      <div class="tiktok-grid-bg" aria-hidden="true"></div>
+      <header class="tiktok-hero">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64" role="img">
+              <circle cx="32" cy="32" r="27" fill="none" stroke="currentColor" stroke-width="4" />
+              <path d="M18 35 32 14l14 21-14 15-14-15Z" fill="currentColor" opacity="0.95" />
+              <path d="M25 34h14M28 39h8" stroke="#fff8ec" stroke-width="3" stroke-linecap="round" />
+            </svg>
+          </div>
+          <div>
+            <p class="brand-kicker">TradeHarbor TikTok Lab</p>
+            <strong>合规二创视频工厂</strong>
+          </div>
+          <button class="ghost-btn tiktok-back-btn" type="button" id="tiktok-back-btn">返回平台入口</button>
+        </div>
+
+        <div class="tiktok-hero-main">
+          <div>
+            <p class="tiktok-kicker">Content Remix Factory</p>
+            <h1>把产品视频改造成新的短视频资产</h1>
+            <p>上传原始产品视频，填写产品卖点和品牌信息；系统会调用独立 FastAPI 服务，生成新英文脚本、旁白、动态字幕、品牌片头和 1080x1920 竖屏视频。</p>
+          </div>
+          <aside class="tiktok-service-card">
+            <span>Local API</span>
+            <strong>8010</strong>
+            <small id="video-service-state">检测中...</small>
+            <div class="video-service-actions" aria-label="8010 服务控制">
+              <button class="service-toggle-btn start" type="button" id="video-service-start-btn">启动 8010</button>
+              <button class="service-toggle-btn stop" type="button" id="video-service-stop-btn">关闭</button>
+            </div>
+          </aside>
+        </div>
+      </header>
+
+      <nav class="tiktok-mode-tabs" aria-label="TikTok 功能切换">
+        <button class="tiktok-mode-tab is-active" type="button" data-tiktok-target="tiktok-remix-mode">
+          <strong>AI 二创视频</strong>
+          <span>Script Remix</span>
+        </button>
+        <button class="tiktok-mode-tab" type="button" data-tiktok-target="tiktok-visual-mode">
+          <strong>视觉差异化工厂</strong>
+          <span>Visual Variant</span>
+        </button>
+      </nav>
+
+      <div class="tiktok-mode-panel is-active" id="tiktok-remix-mode">
+      <main class="tiktok-workbench">
+        <section class="tiktok-panel remix-panel">
+          <div class="panel-header">
+            <h2>TikTok Remix Studio</h2>
+            <p>第一版 MVP：上传视频 → 提取视频信息 → AI 生成新英文脚本 → TTS 旁白 → 竖屏裁剪 → 字幕 + 品牌片头 → 导出 MP4。</p>
+          </div>
+
+          <form id="video-remix-form" class="video-remix-form" enctype="multipart/form-data">
+            <label class="video-upload-zone">
+              <span>上传产品视频</span>
+              <strong>选择 MP4 / MOV / WEBM</strong>
+              <input type="file" name="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm" required />
+            </label>
+            <label>
+              <span>产品标题</span>
+              <input type="text" name="product_title" placeholder="如 Phone Case" />
+            </label>
+            <label>
+              <span>产品链接</span>
+              <input type="url" name="product_link" placeholder="https://..." />
+            </label>
+            <label>
+              <span>品牌名</span>
+              <input type="text" name="brand_name" value="TradeHarbor" />
+            </label>
+            <label>
+              <span>Slogan</span>
+              <input type="text" name="slogan" value="Find better product angles" />
+            </label>
+            <label class="field-wide">
+              <span>产品卖点 / 使用场景</span>
+              <textarea name="product_info" rows="5" placeholder="写产品用途、核心卖点、目标用户、适合什么场景。系统会基于这些信息生成新的英文营销脚本。"></textarea>
+            </label>
+            <button type="submit" class="primary-btn remix-submit">生成二创视频</button>
+          </form>
+        </section>
+
+        <section class="tiktok-panel remix-result-panel">
+          <div class="panel-header">
+            <h2>处理状态</h2>
+            <p>视频处理通常比普通接口慢一些，尤其是第一次加载 Whisper / TTS 的时候。</p>
+          </div>
+          <div class="remix-status" id="video-remix-status">
+            <span>等待任务</span>
+            <strong>请先启动 8010 服务并上传视频</strong>
+            <p>启动命令：cd video-remix-api && uvicorn app.main:app --host 127.0.0.1 --port 8010</p>
+          </div>
+          <div class="remix-result" id="video-remix-result" hidden></div>
+        </section>
+      </main>
+      </div>
+
+      <div class="tiktok-mode-panel" id="tiktok-visual-mode" hidden>
+        <main class="tiktok-workbench">
+          <section class="tiktok-panel remix-panel">
+            <div class="panel-header">
+              <h2>Visual Variant Studio</h2>
+              <p>第一版 MVP：上传视频 → 随机微缩放/轻裁切 → 模糊动态背景 → 色彩微调 → 质感噪点/暗角 → 微变速 → 导出新 MP4。</p>
+            </div>
+
+            <form id="visual-dedupe-form" class="video-remix-form" enctype="multipart/form-data">
+              <label class="video-upload-zone">
+                <span>上传原视频，可多选</span>
+                <strong>选择一个或多个 MP4 / MOV / AVI</strong>
+                <input type="file" name="file" accept="video/mp4,video/quicktime,video/x-msvideo,video/webm,.mp4,.mov,.m4v,.avi,.webm" multiple required />
+              </label>
+              <input type="hidden" name="intensity" value="custom" />
+              <div class="variant-switches field-wide">
+                <div class="variant-param-heading">
+                  <strong>选择要加的视频处理</strong>
+                  <span>你只需要打开开关，具体参数系统会自动随机。默认全开，适合快速生成多版本测试素材。</span>
+                </div>
+                <label class="effect-toggle">
+                  <input type="hidden" name="effect_zoom" value="false" />
+                  <input type="checkbox" name="effect_zoom" value="true" checked />
+                  <span><strong>微缩放 + 轻裁切</strong><em>随机 1%~5% 缩放，轻微改变画面边缘特征。</em></span>
+                </label>
+                <label class="effect-toggle">
+                  <input type="hidden" name="effect_background" value="false" />
+                  <input type="checkbox" name="effect_background" value="true" checked />
+                  <span><strong>动态模糊背景</strong><em>生成 TikTok 常见的竖屏模糊背景 + 中间主视频。</em></span>
+                </label>
+                <label class="effect-toggle">
+                  <input type="hidden" name="effect_color" value="false" />
+                  <input type="checkbox" name="effect_color" value="true" checked />
+                  <span><strong>色彩微调</strong><em>轻微调整饱和度、对比度、亮度和色调。</em></span>
+                </label>
+                <label class="effect-toggle">
+                  <input type="hidden" name="effect_speed" value="false" />
+                  <input type="checkbox" name="effect_speed" value="true" checked />
+                  <span><strong>轻微变速</strong><em>随机 0.97x~1.03x，音频同步处理。</em></span>
+                </label>
+                <label class="effect-toggle">
+                  <input type="hidden" name="effect_texture" value="false" />
+                  <input type="checkbox" name="effect_texture" value="true" checked />
+                  <span><strong>颗粒质感层</strong><em>添加轻微噪点/胶片颗粒，让画面质感更不一样。</em></span>
+                </label>
+                <label class="effect-toggle">
+                  <input type="hidden" name="effect_vignette" value="false" />
+                  <input type="checkbox" name="effect_vignette" value="true" checked />
+                  <span><strong>暗角光影层</strong><em>增加轻微暗角，降低画面过于原始的感觉。</em></span>
+                </label>
+              </div>
+              <button type="submit" class="primary-btn remix-submit">生成差异化视频</button>
+            </form>
+          </section>
+
+          <section class="tiktok-panel remix-result-panel">
+            <div class="panel-header">
+              <h2>处理状态</h2>
+              <p>这个功能偏 FFmpeg 视觉处理，不调用 AI；速度通常比 AI 二创更快。</p>
+            </div>
+            <div class="remix-status" id="visual-dedupe-status">
+              <span>等待任务</span>
+              <strong>请先启动 8010 服务并上传视频</strong>
+              <p>系统会为每个上传视频生成一个视觉差异化版本，下载文件名会沿用原文件名并追加 _visual_variant 后缀。</p>
+            </div>
+            <div class="remix-result" id="visual-dedupe-result" hidden></div>
+          </section>
+        </main>
+      </div>
+    </section>
+
+
+    <div class="page-shell app-shell" id="app-shell" hidden>
       <header class="hero">
         <div class="brand-lockup" aria-label="TradeHarbor 品牌">
           <div class="brand-mark" aria-hidden="true">
@@ -22,6 +249,7 @@
             <p class="brand-kicker">TradeHarbor</p>
             <strong>跨境生意操作台</strong>
           </div>
+          <button class="ghost-btn gateway-back-btn" type="button" id="gateway-back-btn">返回平台入口</button>
         </div>
 
         <div class="hero-main">
@@ -210,7 +438,7 @@
               <form id="ai-opportunity-form" class="ai-search-bar">
                 <label>
                   <span>Amazon 关键词</span>
-                  <input type="text" name="keyword" placeholder="如 diamond grinding wheel" />
+                  <input type="text" name="keyword" placeholder="如 phone case" />
                 </label>
                 <button type="submit" class="primary-btn">AI发现机会</button>
               </form>
@@ -300,7 +528,7 @@
               <form id="product-hunter-form" class="product-hunter-form">
                 <label>
                   <span>关键词</span>
-                  <input type="text" name="keyword" placeholder="请输入关键词，例如 diamond wheel" />
+                  <input type="text" name="keyword" placeholder="请输入关键词，例如 phone case" />
                 </label>
                 <button type="submit" class="primary-btn">AI 分析赚钱机会</button>
                 <button type="button" class="ghost-btn hunter-export-btn" id="hunter-export-btn" disabled>导出 CSV</button>
@@ -381,7 +609,7 @@
               <form id="market-gap-form" class="market-gap-form">
                 <label>
                   <span>关键词</span>
-                  <input type="text" name="keyword" placeholder="如 diamond wheel / glass grinder / cbn wheel" />
+                  <input type="text" name="keyword" placeholder="如 phone case / laptop stand / car phone holder" />
                 </label>
                 <button type="submit" class="primary-btn">AI 分析市场空缺</button>
               </form>
@@ -732,6 +960,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=20260512-4"></script>
+    <script src="/app.js?v=20260514-switches"></script>
   </body>
 </html>

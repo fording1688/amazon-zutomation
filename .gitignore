@@ -7,3 +7,8 @@ amazon_test_results.csv
 
 .DS_Store
 web/generated/
+video-remix-api/.venv/
+video-remix-api/uploads/*
+video-remix-api/outputs/*
+!video-remix-api/uploads/.gitkeep
+!video-remix-api/outputs/.gitkeep

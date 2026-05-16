@@ -1,3 +1,21 @@
+const platformGateway = document.querySelector("#platform-gateway");
+const appShell = document.querySelector("#app-shell");
+const gatewayStatus = document.querySelector("#gateway-status");
+const gatewayBackButton = document.querySelector("#gateway-back-btn");
+const tiktokShell = document.querySelector("#tiktok-shell");
+const tiktokBackButton = document.querySelector("#tiktok-back-btn");
+const videoRemixForm = document.querySelector("#video-remix-form");
+const videoRemixStatus = document.querySelector("#video-remix-status");
+const videoRemixResult = document.querySelector("#video-remix-result");
+const visualDedupeForm = document.querySelector("#visual-dedupe-form");
+const visualDedupeStatus = document.querySelector("#visual-dedupe-status");
+const visualDedupeResult = document.querySelector("#visual-dedupe-result");
+const tiktokModeTabs = document.querySelectorAll("[data-tiktok-target]");
+const tiktokModePanels = document.querySelectorAll(".tiktok-mode-panel");
+const videoServiceState = document.querySelector("#video-service-state");
+const videoServiceStartButton = document.querySelector("#video-service-start-btn");
+const videoServiceStopButton = document.querySelector("#video-service-stop-btn");
+const platformEntryButtons = document.querySelectorAll("[data-platform-entry]");
 const form = document.querySelector("#filter-form");
 const resetButton = document.querySelector("#reset-btn");
 const statusText = document.querySelector("#status-text");
@@ -88,6 +106,7 @@ let pageSize = Number(pageSizeSelect.value || 30);
 let activeRequestId = 0;
 let currentPage = 1;
 let lastQueryString = "";
+let hasLoadedAmazonWorkspace = false;
 
 
 
@@ -95,6 +114,58 @@ const GRAMS_PER_POUND = 453.59237;
 const MILLIMETERS_PER_INCH = 25.4;
 let weightInputMode = "grams";
 let dimensionInputMode = "millimeters";
+
+function showOnlyWorkspace(target) {
+  const pages = {
+    gateway: platformGateway,
+    amazon: appShell,
+    tiktok: tiktokShell,
+  };
+
+  Object.entries(pages).forEach(([name, element]) => {
+    if (!element) {
+      return;
+    }
+    const isActive = name === target;
+    element.hidden = !isActive;
+    element.style.display = isActive ? "" : "none";
+  });
+
+  document.body.dataset.workspace = target;
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+function enterAmazonWorkspace() {
+  showOnlyWorkspace("amazon");
+  if (!hasLoadedAmazonWorkspace) {
+    hasLoadedAmazonWorkspace = true;
+    updatePagination();
+    loadProducts(1);
+  }
+}
+
+function enterTiktokWorkspace() {
+  showOnlyWorkspace("tiktok");
+  refreshVideoRemixServiceStatus();
+}
+
+function showPlatformGateway() {
+  showOnlyWorkspace("gateway");
+}
+
+function handlePlatformEntry(platform) {
+  if (platform === "amazon") {
+    enterAmazonWorkspace();
+    return;
+  }
+  if (platform === "tiktok") {
+    enterTiktokWorkspace();
+    return;
+  }
+  gatewayStatus.textContent = "Facebook 模块正在规划中，后续可以接入广告素材、受众测试和投放数据工具。";
+}
+
+
 
 function formatWeight(value, maximumFractionDigits = 4) {
   return Number(value).toLocaleString(undefined, {
@@ -601,7 +672,7 @@ async function runProductHunter() {
   const keyword = (new FormData(productHunterForm).get("keyword") || "").trim();
   latestHunterKeyword = keyword;
   if (!keyword) {
-    hunterStatus.textContent = "请输入关键词，例如 diamond wheel。";
+    hunterStatus.textContent = "请输入关键词，例如 phone case。";
     return;
   }
   hunterResults.hidden = true;
@@ -734,7 +805,7 @@ function renderMarketGapResult(result = {}) {
 async function runMarketGapDiscovery() {
   const keyword = (new FormData(marketGapForm).get("keyword") || "").trim();
   if (!keyword) {
-    marketGapStatus.textContent = "请输入关键词，例如 diamond wheel。";
+    marketGapStatus.textContent = "请输入关键词，例如 phone case。";
     return;
   }
   marketGapResults.hidden = true;
@@ -1005,10 +1076,15 @@ async function loadProducts(page = currentPage) {
 
   try {
     const response = await fetch(`/api/products?${query}`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch (jsonError) {
+      payload = {};
     }
-    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || payload.summary?.error || `HTTP ${response.status}`);
+    }
     if (requestId !== activeRequestId) {
       return;
     }
@@ -1029,6 +1105,338 @@ async function loadProducts(page = currentPage) {
     );
   }
 }
+
+async function refreshVideoRemixServiceStatus() {
+  if (!videoServiceState) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/video-remix-service");
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    const result = payload.result || {};
+    videoServiceState.textContent = result.running ? "运行中" : "未启动";
+    videoServiceState.classList.toggle("is-running", Boolean(result.running));
+    videoServiceState.classList.toggle("is-stopped", !result.running);
+    if (videoServiceStartButton) {
+      videoServiceStartButton.disabled = Boolean(result.running);
+    }
+    if (videoServiceStopButton) {
+      videoServiceStopButton.disabled = !result.running || !result.managed;
+      videoServiceStopButton.title = result.running && !result.managed ? "这个 8010 服务不是页面启动的，不能安全关闭" : "";
+    }
+  } catch (error) {
+    videoServiceState.textContent = "状态未知";
+    videoServiceState.classList.remove("is-running");
+    videoServiceState.classList.add("is-stopped");
+  }
+}
+
+async function controlVideoRemixService(action) {
+  const label = action === "start" ? "启动中..." : "关闭中...";
+  if (videoServiceState) {
+    videoServiceState.textContent = label;
+  }
+  if (videoServiceStartButton) {
+    videoServiceStartButton.disabled = true;
+  }
+  if (videoServiceStopButton) {
+    videoServiceStopButton.disabled = true;
+  }
+  try {
+    const response = await fetch("/api/video-remix-service", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    await refreshVideoRemixServiceStatus();
+    renderVideoRemixStatus(
+      action === "start" ? "8010 已启动" : "8010 已关闭",
+      payload.message || "服务状态已更新",
+      action === "start" ? "现在可以上传视频进行二创处理。" : "需要处理视频时再启动即可。"
+    );
+  } catch (error) {
+    await refreshVideoRemixServiceStatus();
+    renderVideoRemixStatus(
+      action === "start" ? "启动失败" : "关闭失败",
+      error.message,
+      "如果是第一次使用，请先安装依赖：cd video-remix-api && pip install -r requirements.txt，并安装 FFmpeg。"
+    );
+  }
+}
+
+const VIDEO_REMIX_API_BASE = "http://127.0.0.1:8010";
+let activeVideoRemixTask = "";
+let videoRemixPollTimer = null;
+let activeVisualDedupeTasks = [];
+let visualDedupePollTimers = {};
+
+function renderVideoRemixStatus(title, message, detail = "") {
+  if (!videoRemixStatus) {
+    return;
+  }
+  videoRemixStatus.innerHTML = `
+    <span>${escapeHTML(title)}</span>
+    <strong>${escapeHTML(message)}</strong>
+    ${detail ? `<p>${escapeHTML(detail)}</p>` : ""}
+  `;
+}
+
+function renderVideoRemixResult(task) {
+  if (!videoRemixResult) {
+    return;
+  }
+  const info = task.video_info || {};
+  const downloadUrl = task.download_url ? `${VIDEO_REMIX_API_BASE}${task.download_url}` : "";
+  videoRemixResult.hidden = false;
+  videoRemixResult.innerHTML = `
+    <div class="remix-output-grid">
+      <article><span>任务 ID</span><strong>${escapeHTML(task.task_id || "--")}</strong></article>
+      <article><span>状态</span><strong>${escapeHTML(task.status || "--")}</strong></article>
+      <article><span>时长</span><strong>${escapeHTML(info.duration || 0)}s</strong></article>
+      <article><span>分辨率</span><strong>${escapeHTML(info.width || 0)}×${escapeHTML(info.height || 0)}</strong></article>
+    </div>
+    <div class="remix-script-card">
+      <span>AI 新英文脚本</span>
+      <p>${escapeHTML(task.script || "脚本生成后会显示在这里。")}</p>
+    </div>
+    ${downloadUrl ? `<a class="primary-btn remix-download" href="${escapeHTML(downloadUrl)}" target="_blank" rel="noreferrer">下载生成视频</a>` : ""}
+  `;
+}
+
+async function pollVideoRemixTask(taskId) {
+  if (!taskId || taskId !== activeVideoRemixTask) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${VIDEO_REMIX_API_BASE}/task/${encodeURIComponent(taskId)}`);
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
+    }
+    const task = payload.task;
+    renderVideoRemixStatus(`进度 ${task.progress || 0}%`, task.message || "正在处理", task.status || "processing");
+    renderVideoRemixResult(task);
+
+    if (task.status === "completed") {
+      return;
+    }
+    if (task.status === "failed") {
+      renderVideoRemixStatus("处理失败", task.error || task.message || "请查看后端日志", "常见原因：FFmpeg 未安装、依赖未安装、视频格式异常或 TTS 网络不可用。");
+      return;
+    }
+    videoRemixPollTimer = window.setTimeout(() => pollVideoRemixTask(taskId), 1800);
+  } catch (error) {
+    renderVideoRemixStatus("连接失败", "无法连接 TikTok 视频工厂服务", `${error.message}。请确认 8010 服务已启动。`);
+  }
+}
+
+function activateTiktokMode(targetId) {
+  tiktokModeTabs.forEach((button) => {
+    const isActive = button.dataset.tiktokTarget === targetId;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+  });
+  tiktokModePanels.forEach((panel) => {
+    const isActive = panel.id === targetId;
+    panel.classList.toggle("is-active", isActive);
+    panel.hidden = !isActive;
+  });
+}
+
+function renderVisualDedupeStatus(title, message, detail = "") {
+  if (!visualDedupeStatus) {
+    return;
+  }
+  visualDedupeStatus.innerHTML = `
+    <span>${escapeHTML(title)}</span>
+    <strong>${escapeHTML(message)}</strong>
+    ${detail ? `<p>${escapeHTML(detail)}</p>` : ""}
+  `;
+}
+
+function visualTaskCardId(taskId) {
+  return `visual-task-${String(taskId || "").replace(/[^a-zA-Z0-9_-]/g, "")}`;
+}
+
+function ensureVisualBatchShell() {
+  if (!visualDedupeResult) {
+    return null;
+  }
+  visualDedupeResult.hidden = false;
+  if (!visualDedupeResult.querySelector(".visual-batch-list")) {
+    visualDedupeResult.innerHTML = `
+      <div class="visual-batch-header">
+        <span>批量处理队列</span>
+        <strong>每个视频会独立生成一个 MP4</strong>
+        <p>下载时会使用原文件名，并追加 _visual_variant 后缀。</p>
+      </div>
+      <div class="visual-batch-list"></div>
+    `;
+  }
+  return visualDedupeResult.querySelector(".visual-batch-list");
+}
+
+function renderVisualDedupeResult(task) {
+  const batchList = ensureVisualBatchShell();
+  if (!batchList) {
+    return;
+  }
+  const cardId = visualTaskCardId(task.task_id);
+  const info = task.video_info || {};
+  const effects = task.effects || {};
+  const downloadUrl = task.download_url ? `${VIDEO_REMIX_API_BASE}${task.download_url}` : "";
+  const downloadName = task.metadata?.download_filename || "";
+  const enabledEffects = [
+    effects.effect_zoom ? "微缩放/轻裁切" : "",
+    effects.effect_background ? "动态模糊背景" : "",
+    effects.effect_color ? "色彩微调" : "",
+    effects.effect_speed ? "轻微变速" : "",
+    effects.effect_texture ? "颗粒质感" : "",
+    effects.effect_vignette ? "暗角光影" : "",
+  ].filter(Boolean);
+  const cardHTML = `
+    <article class="visual-task-card ${task.status === "completed" ? "is-completed" : ""} ${task.status === "failed" ? "is-failed" : ""}" id="${escapeHTML(cardId)}">
+      <div class="visual-task-card-head">
+        <div>
+          <span>${escapeHTML(task.status || "queued")}</span>
+          <strong>${escapeHTML(task.original_filename || task.task_id || "--")}</strong>
+          ${downloadName ? `<p>输出文件：${escapeHTML(downloadName)}</p>` : ""}
+        </div>
+        <b>${escapeHTML(task.progress || 0)}%</b>
+      </div>
+    <div class="remix-output-grid">
+      <article><span>任务 ID</span><strong>${escapeHTML(task.task_id || "--")}</strong></article>
+      <article><span>原片时长</span><strong>${escapeHTML(info.duration || 0)}s</strong></article>
+      <article><span>原片分辨率</span><strong>${escapeHTML(info.width || 0)}×${escapeHTML(info.height || 0)}</strong></article>
+      <article><span>当前状态</span><strong>${escapeHTML(task.message || task.status || "--")}</strong></article>
+    </div>
+    <div class="remix-script-card">
+      <span>本次已启用处理</span>
+      <div class="effects-chips">
+        ${enabledEffects.length ? enabledEffects.map((label) => `<b>${escapeHTML(label)}</b>`).join("") : "<b>仅转码输出</b>"}
+      </div>
+      <p>系统已按你打开的开关自动随机处理并导出 1080×1920 H264 MP4。建议同一个素材生成多个版本，用于正常的素材 A/B 测试和创意改版。</p>
+    </div>
+    ${task.error ? `<p class="visual-task-error">${escapeHTML(task.error)}</p>` : ""}
+    ${downloadUrl ? `<a class="primary-btn remix-download" href="${escapeHTML(downloadUrl)}" target="_blank" rel="noreferrer" download="${escapeHTML(downloadName)}">下载差异化视频</a>` : ""}
+    </article>
+  `;
+  const existing = batchList.querySelector(`#${CSS.escape(cardId)}`);
+  if (existing) {
+    existing.outerHTML = cardHTML;
+  } else {
+    batchList.insertAdjacentHTML("beforeend", cardHTML);
+  }
+}
+
+async function pollVisualDedupeTask(taskId) {
+  if (!taskId || !activeVisualDedupeTasks.includes(taskId)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${VIDEO_REMIX_API_BASE}/dedupe-task/${encodeURIComponent(taskId)}`);
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
+    }
+    const task = payload.task;
+    renderVisualDedupeStatus(`进度 ${task.progress || 0}%`, task.message || "正在处理", task.status || "processing");
+    renderVisualDedupeResult(task);
+
+    if (task.status === "completed") {
+      return;
+    }
+    if (task.status === "failed") {
+      return;
+    }
+    visualDedupePollTimers[taskId] = window.setTimeout(() => pollVisualDedupeTask(taskId), 1600);
+  } catch (error) {
+    renderVisualDedupeStatus("连接失败", "无法连接 TikTok 视觉差异化服务", `${error.message}。请确认 8010 服务已启动。`);
+  }
+}
+
+async function submitVisualDedupe(event) {
+  event.preventDefault();
+  Object.values(visualDedupePollTimers).forEach((timer) => window.clearTimeout(timer));
+  visualDedupePollTimers = {};
+  const files = Array.from(visualDedupeForm.elements.file.files || []);
+  if (!files.length) {
+    renderVisualDedupeStatus("缺少视频", "请先选择一个或多个视频", "支持 mp4 / mov / avi / webm。 ");
+    return;
+  }
+
+  const sourceData = new FormData(visualDedupeForm);
+  const data = new FormData();
+  for (const [key, value] of sourceData.entries()) {
+    if (key !== "file") {
+      data.append(key, value);
+    }
+  }
+  files.forEach((file) => data.append("files", file, file.name));
+
+  visualDedupeResult.hidden = true;
+  visualDedupeResult.innerHTML = "";
+  renderVisualDedupeStatus("正在上传", `${files.length} 个视频正在发送到 8010 服务`, "上传完成后会为每个视频创建独立处理任务。 ");
+
+  try {
+    const response = await fetch(`${VIDEO_REMIX_API_BASE}/dedupe-upload-batch`, {
+      method: "POST",
+      body: data,
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
+    }
+    activeVisualDedupeTasks = (payload.tasks || []).map((task) => task.task_id).filter(Boolean);
+    renderVisualDedupeStatus("批量任务已创建", `${activeVisualDedupeTasks.length} 个视频已进入队列`, "正在执行微缩放、背景、色彩、质感层和微变速处理。 ");
+    ensureVisualBatchShell();
+    activeVisualDedupeTasks.forEach((taskId) => pollVisualDedupeTask(taskId));
+  } catch (error) {
+    renderVisualDedupeStatus("上传失败", "请确认 TikTok 视频工厂服务正在运行", `${error.message}。可点击右上角启动 8010。`);
+  }
+}
+
+async function submitVideoRemix(event) {
+  event.preventDefault();
+  if (videoRemixPollTimer) {
+    window.clearTimeout(videoRemixPollTimer);
+  }
+  const file = videoRemixForm.elements.file.files[0];
+  if (!file) {
+    renderVideoRemixStatus("缺少视频", "请先选择一个产品视频", "支持 mp4 / mov / webm。 ");
+    return;
+  }
+
+  const data = new FormData(videoRemixForm);
+  videoRemixResult.hidden = true;
+  renderVideoRemixStatus("正在上传", "视频正在发送到 8010 服务", "上传完成后会自动轮询处理进度。 ");
+
+  try {
+    const response = await fetch(`${VIDEO_REMIX_API_BASE}/upload`, {
+      method: "POST",
+      body: data,
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
+    }
+    activeVideoRemixTask = payload.task_id;
+    renderVideoRemixStatus("任务已创建", `任务 ${payload.task_id} 已进入队列`, "正在开始 AI 脚本、TTS 和视频合成流程。 ");
+    pollVideoRemixTask(payload.task_id);
+  } catch (error) {
+    renderVideoRemixStatus("上传失败", "请确认 TikTok 视频工厂服务正在运行", `${error.message}。启动：cd video-remix-api && uvicorn app.main:app --host 127.0.0.1 --port 8010`);
+  }
+}
+
 
 tabButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -1149,5 +1557,36 @@ pageSizeSelect.addEventListener("change", () => {
   loadProducts(1);
 });
 
+platformEntryButtons.forEach((button) => {
+  button.addEventListener("click", () => handlePlatformEntry(button.dataset.platformEntry));
+});
+
+gatewayBackButton.addEventListener("click", showPlatformGateway);
+
+if (tiktokBackButton) {
+  tiktokBackButton.addEventListener("click", showPlatformGateway);
+}
+
+if (videoRemixForm) {
+  videoRemixForm.addEventListener("submit", submitVideoRemix);
+}
+
+if (visualDedupeForm) {
+  visualDedupeForm.addEventListener("submit", submitVisualDedupe);
+}
+
+tiktokModeTabs.forEach((button) => {
+  button.addEventListener("click", () => activateTiktokMode(button.dataset.tiktokTarget));
+});
+
+if (videoServiceStartButton) {
+  videoServiceStartButton.addEventListener("click", () => controlVideoRemixService("start"));
+}
+
+if (videoServiceStopButton) {
+  videoServiceStopButton.addEventListener("click", () => controlVideoRemixService("stop"));
+}
+
+refreshVideoRemixServiceStatus();
+
 updatePagination();
-loadProducts(1);
