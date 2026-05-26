@@ -95,12 +95,23 @@ const reviewsAverage = document.querySelector("#reviews-average");
 const reviewsLowCount = document.querySelector("#reviews-low-count");
 const reviewsVerifiedCount = document.querySelector("#reviews-verified-count");
 const reviewsNote = document.querySelector("#reviews-note");
+const imageProductionForm = document.querySelector("#image-production-form");
+const imageProductionStatus = document.querySelector("#image-production-status");
+const imageJobsList = document.querySelector("#image-jobs-list");
+const imageJobsRefreshButton = document.querySelector("#image-jobs-refresh-btn");
+const imageSlotBoard = document.querySelector("#image-slot-board");
+const imageActionForm = document.querySelector("#image-action-form");
+const imageProductionOutput = document.querySelector("#image-production-output");
 let latestReviews = [];
 let latestReviewsAsin = "";
 let latestAiProducts = [];
 let latestAiKeyword = "";
 let latestHunterProducts = [];
 let latestHunterKeyword = "";
+let hasLoadedImageJobs = false;
+let currentImagePlan = null;
+let currentImageSku = "";
+let latestImageJobs = [];
 
 let pageSize = Number(pageSizeSelect.value || 30);
 let activeRequestId = 0;
@@ -1437,6 +1448,526 @@ async function submitVideoRemix(event) {
   }
 }
 
+function renderImageProductionStatus(label, title, detail = "") {
+  if (!imageProductionStatus) {
+    return;
+  }
+  imageProductionStatus.innerHTML = `
+    <span>${label}</span>
+    <strong>${title}</strong>
+    <p>${detail}</p>
+  `;
+}
+
+function writeImageProductionOutput(payload) {
+  if (!imageProductionOutput) {
+    return;
+  }
+  imageProductionOutput.textContent = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+}
+
+function setCurrentImageSku(sku) {
+  currentImageSku = String(sku || "").trim();
+  if (imageActionForm && currentImageSku) {
+    imageActionForm.elements.sku.value = currentImageSku;
+  }
+}
+
+function getActiveImageSku() {
+  return currentImageSku || imageActionForm?.elements.sku.value.trim() || "";
+}
+
+function formatQcReport(report) {
+  if (!report) {
+    return "质检完成。";
+  }
+  const missing = report.missing_images || [];
+  const lines = [
+    `SKU：${report.sku}`,
+    report.message || "质检完成。",
+    `已归档图片：${report.image_count || 0} / ${report.expected_count || 0}`,
+  ];
+  if (report.folder_path) {
+    lines.push(`文件夹：${report.folder_path}`);
+  }
+  if (missing.length) {
+    lines.push("");
+    lines.push("还缺这些图片：");
+    lines.push(...missing.map((name) => `- ${name}`));
+  }
+  return lines.join("\n");
+}
+
+function imageJobStatusLabel(status) {
+  const labels = {
+    queued_locally: "本地已记录",
+    prompts_generated: "Prompt 已生成",
+    image_factory_failed: "图片工厂调用失败",
+  };
+  return labels[status] || status || "未知";
+}
+
+function renderImageJobs(jobs = [], meta = {}) {
+  if (!imageJobsList) {
+    return;
+  }
+  latestImageJobs = jobs;
+  if (!jobs.length) {
+    imageJobsList.innerHTML = `
+      <div class="empty-image-jobs">
+        <strong>还没有图片任务</strong>
+        <p>提交第一个 SKU 后，这里会显示最近 Prompt 生成记录和参考图数量。</p>
+      </div>
+    `;
+    return;
+  }
+
+  imageJobsList.innerHTML = jobs.slice(0, 20).map((job) => {
+    const imageCount = Array.isArray(job.reference_images) ? job.reference_images.length : 0;
+    const status = imageJobStatusLabel(job.status);
+    const statusClass = job.status === "prompts_generated" ? "is-ok" : job.status === "image_factory_failed" ? "is-error" : "";
+    const promptsPath = job.factory_response?.prompts_path ? `<p>Prompts: ${job.factory_response.prompts_path}</p>` : "";
+    return `
+      <article class="image-job-card" data-restore-sku="${escapeHTML(job.sku || "")}">
+        <div>
+          <span class="image-job-status ${statusClass}">${status}</span>
+          <h3>${job.sku || "--"} · ${job.product_name || "--"}</h3>
+          <p>${job.brand || "--"} / ${job.target_keyword || "--"} · 点击这张记录恢复图片清单</p>
+        </div>
+        <dl>
+          <div><dt>包含物品</dt><dd>${job.included_items || "--"}</dd></div>
+          <div><dt>参考图</dt><dd>${imageCount} 张</dd></div>
+          <div><dt>提交时间</dt><dd>${job.created_at || "--"}</dd></div>
+        </dl>
+        ${job.error ? `<p class="image-job-error">${job.error}</p>` : ""}
+        ${promptsPath}
+      </article>
+    `;
+  }).join("");
+}
+
+function imageSlotSummary(item, groupLabel = "") {
+  if (item.slot === "01-main-image") {
+    return "白底主图，只展示购买包含物，无文字、无道具。";
+  }
+  if (groupLabel === "A+" || item.layout_template === "aplus-module.html") {
+    return "A+ 模块，文字层用 HTML/CSS 模板渲染。";
+  }
+  return "副图信息图，文字层用 HTML/CSS 模板渲染。";
+}
+
+function renderImageSlotBoard(plan) {
+  if (!imageSlotBoard) {
+    return;
+  }
+  if (!plan) {
+    imageSlotBoard.innerHTML = `
+      <div class="empty-image-jobs">
+        <strong>还没有图片方案</strong>
+        <p>先在上面填写 SKU 信息并点击“生成 Prompt 方案”。</p>
+      </div>
+    `;
+    return;
+  }
+
+  const listingSlots = [plan.main_image_prompt, ...(plan.secondary_images || [])];
+  const aplusSlots = plan.a_plus_modules || [];
+  const renderCard = (item, groupLabel) => `
+    <article class="image-slot-card" data-slot="${escapeHTML(item.slot)}">
+      <div class="image-slot-topline">
+        <span>${escapeHTML(groupLabel)}</span>
+        <em>${item.generation_method === "html_css_layout" ? "HTML/CSS 排版" : "图片模型"}</em>
+      </div>
+      <h3>${escapeHTML(item.file_name)}</h3>
+      <p>${imageSlotSummary(item, groupLabel)}</p>
+      <dl>
+        <div><dt>模型/工具</dt><dd>${escapeHTML(item.model_preference?.provider || "--")} / ${escapeHTML(item.model_preference?.primary_model || "--")}</dd></div>
+        <div><dt>模板</dt><dd>${escapeHTML(item.layout_template || "无")}</dd></div>
+      </dl>
+      <details>
+        <summary>查看 Prompt 和文案</summary>
+        <pre>${escapeHTML(item.prompt || "")}</pre>
+        ${(item.copy || []).length ? `<ul>${item.copy.map((line) => `<li>${escapeHTML(line)}</li>`).join("")}</ul>` : ""}
+      </details>
+      <div class="image-slot-actions">
+        <button type="button" class="ghost-btn" data-copy-prompt="${escapeHTML(item.slot)}">复制 Prompt</button>
+        <label class="slot-upload-btn">
+          上传成图
+          <input type="file" accept="image/*" data-slot-upload="${escapeHTML(item.slot)}" />
+        </label>
+      </div>
+      <div class="image-slot-url-row">
+        <input type="url" placeholder="粘贴图片直链（.png/.jpg/.webp）" data-slot-url="${escapeHTML(item.slot)}" />
+        <button type="button" class="ghost-btn" data-import-url="${escapeHTML(item.slot)}">链接归档</button>
+      </div>
+      <p class="image-slot-card-status" data-slot-card-status></p>
+    </article>
+  `;
+  imageSlotBoard.innerHTML = `
+    <div class="image-slot-group">
+      <h3>Listing 图片包</h3>
+      <div class="image-slot-grid">${listingSlots.map((item) => renderCard(item, "Listing")).join("")}</div>
+    </div>
+    <div class="image-slot-group">
+      <h3>A+ 内容模块</h3>
+      <div class="image-slot-grid">${aplusSlots.map((item) => renderCard(item, "A+")).join("")}</div>
+    </div>
+  `;
+}
+
+function findImageSlot(slot) {
+  if (!currentImagePlan) {
+    return null;
+  }
+  const all = [
+    currentImagePlan.main_image_prompt,
+    ...(currentImagePlan.secondary_images || []),
+    ...(currentImagePlan.a_plus_modules || []),
+  ];
+  return all.find((item) => item.slot === slot);
+}
+
+function setImageSlotCardStatus(slot, message, state = "idle") {
+  if (!imageSlotBoard || !slot) {
+    return;
+  }
+  const card = imageSlotBoard.querySelector(`.image-slot-card[data-slot="${CSS.escape(slot)}"]`);
+  const status = card?.querySelector("[data-slot-card-status]");
+  if (!card || !status) {
+    return;
+  }
+  card.dataset.state = state;
+  status.textContent = message || "";
+}
+
+function applyImagePlan(result, sourceLabel = "已载入") {
+  const plan = result?.plan || result?.factory_response?.plan || null;
+  const sku = result?.sku || plan?.sku || result?.factory_response?.sku || "";
+  if (!plan) {
+    throw new Error("这个 SKU 没有可恢复的 Prompt 方案。请先生成 Prompt 方案。");
+  }
+  setCurrentImageSku(sku);
+  currentImagePlan = plan;
+  renderImageSlotBoard(currentImagePlan);
+  renderImageProductionStatus(sku, "图片方案已恢复", `${sourceLabel}。现在可以直接上传成图或粘贴图片链接归档，不用重新输入产品资料。`);
+  writeImageProductionOutput({
+    ok: true,
+    sku,
+    prompts_path: result?.prompts_path || result?.factory_response?.prompts_path || "",
+    message: "图片方案已恢复，可以继续归档图片。",
+  });
+}
+
+function fillImageProductionFormFromJob(job) {
+  if (!imageProductionForm || !job) {
+    return;
+  }
+  const fieldMap = {
+    sku: job.sku,
+    brand: job.brand,
+    product_name: job.product_name,
+    included_items: job.included_items,
+    material: job.material,
+    size: job.size,
+    main_keyword: job.main_keyword || job.target_keyword,
+    target_buyer: job.target_buyer,
+    price_range: job.price_range,
+    image_style: job.image_style,
+    reference_images: Array.isArray(job.reference_image_urls) ? job.reference_image_urls.join("\n") : "",
+  };
+  Object.entries(fieldMap).forEach(([name, value]) => {
+    const field = imageProductionForm.elements[name];
+    if (field && value) {
+      field.value = value;
+    }
+  });
+}
+
+async function loadImagePlanBySku(sku, options = {}) {
+  const quiet = Boolean(options.quiet);
+  const cleanSku = String(sku || "").trim();
+  if (!cleanSku) {
+    if (!quiet) {
+      renderImageProductionStatus("缺少 SKU", "请先输入 SKU", "可以输入之前生成过方案的 SKU。");
+      writeImageProductionOutput({ok: false, error: "缺少 SKU。"});
+    }
+    return false;
+  }
+  if (currentImageSku === cleanSku && currentImagePlan) {
+    return true;
+  }
+  setCurrentImageSku(cleanSku);
+  if (!quiet) {
+    renderImageProductionStatus(cleanSku, "正在恢复图片清单", "系统会读取本地 prompts.json，不会重新生成。");
+    writeImageProductionOutput({ok: true, status: "loading_plan", sku: cleanSku});
+  }
+  const matchedJob = latestImageJobs.find((job) => job.sku === cleanSku);
+  if (matchedJob?.factory_response?.plan) {
+    fillImageProductionFormFromJob(matchedJob);
+    applyImagePlan(matchedJob, "从最近任务恢复");
+    return true;
+  }
+  try {
+    const response = await fetch(`/api/image-production/plan?sku=${encodeURIComponent(cleanSku)}`);
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    fillImageProductionFormFromJob(matchedJob);
+    applyImagePlan(payload.result, "从 prompts.json 载入");
+    return true;
+  } catch (error) {
+    if (!quiet) {
+      renderImageProductionStatus("没有找到图片清单", cleanSku, error.message);
+      writeImageProductionOutput({ok: false, sku: cleanSku, error: error.message});
+    }
+    return false;
+  }
+}
+
+async function loadImageProductionJobs() {
+  if (!imageJobsList) {
+    return;
+  }
+  imageJobsList.innerHTML = `<div class="empty-image-jobs"><strong>正在读取任务</strong><p>请稍等。</p></div>`;
+  try {
+    const response = await fetch("/api/image-production/jobs");
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    renderImageJobs(payload.result.jobs || [], payload.result);
+    if (!currentImageSku) {
+      renderImageProductionStatus("内置模块", "图片工厂已合并进当前工作台", "当前只需要这一个 TradeHarbor 服务进程。");
+    }
+  } catch (error) {
+    imageJobsList.innerHTML = `<div class="empty-image-jobs"><strong>读取失败</strong><p>${error.message}</p></div>`;
+  }
+}
+
+async function submitImageProduction(event) {
+  event.preventDefault();
+  const data = new FormData(imageProductionForm);
+  const payload = {};
+  for (const [key, value] of data.entries()) {
+    payload[key] = String(value || "").trim();
+  }
+  payload.reference_image_urls = String(payload.reference_images || "")
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  delete payload.reference_images;
+
+  renderImageProductionStatus("正在生成", "SKU 资料正在发送到图片工厂", "核心 API 会生成 prompts.json，并保存在 SKU 文件夹里。");
+  try {
+    const response = await fetch("/api/image-production", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error || `HTTP ${response.status}`);
+    }
+    const job = result.result;
+    const title = job.status === "prompts_generated" ? "Prompt 方案已生成" : "图片工厂暂时没有完成";
+    renderImageProductionStatus(
+      job.sku,
+      title,
+      job.error || "下一步：复制 prompts.json 里的 Prompt 去生图，然后在下面上传图片归档。"
+    );
+    setCurrentImageSku(job.sku);
+    currentImagePlan = job.factory_response?.plan || null;
+    renderImageSlotBoard(currentImagePlan);
+    writeImageProductionOutput(job.factory_response || job);
+    imageProductionForm.reset();
+    await loadImageProductionJobs();
+  } catch (error) {
+    renderImageProductionStatus("提交失败", "图片任务没有成功送出", error.message);
+    writeImageProductionOutput({ok: false, error: error.message});
+  }
+}
+
+async function uploadImageSlot(slot, file) {
+  const sku = getActiveImageSku();
+  if (!sku) {
+    renderImageProductionStatus("缺少 SKU", "请先生成 Prompt 方案", "生成方案后，每张图卡片会自动绑定当前 SKU。");
+    writeImageProductionOutput({ok: false, error: "缺少 SKU，请先生成 Prompt 方案。"});
+    return;
+  }
+  setCurrentImageSku(sku);
+  const data = new FormData();
+  data.set("sku", sku);
+  data.set("slot", slot);
+  data.set("file", file);
+  renderImageProductionStatus("正在上传", `${slot} 正在处理`, "程序会自动裁剪/填充成 1500x1500。");
+  setImageSlotCardStatus(slot, "正在上传并处理图片...", "busy");
+  writeImageProductionOutput({ok: true, status: "uploading", sku, slot});
+  try {
+    const response = await fetch("/api/image-production/upload", {
+      method: "POST",
+      body: data,
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    renderImageProductionStatus("上传完成", `${slot} 已归档`, payload.result?.file || "");
+    setImageSlotCardStatus(slot, `已归档：${payload.result?.file || ""}`, "ok");
+    writeImageProductionOutput(`上传完成\nSKU：${payload.result?.sku || sku}\n图片位置：${payload.result?.slot || slot}\n保存文件：${payload.result?.file || ""}`);
+  } catch (error) {
+    renderImageProductionStatus("上传失败", `${slot} 没有成功处理`, error.message);
+    setImageSlotCardStatus(slot, `上传失败：${error.message}`, "error");
+    writeImageProductionOutput({ok: false, sku, slot, error: error.message});
+  }
+}
+
+async function importImageSlotUrl(slot, imageUrl, triggerButton = null) {
+  const sku = getActiveImageSku();
+  if (!sku) {
+    renderImageProductionStatus("缺少 SKU", "请先生成 Prompt 方案", "生成方案后，每张图卡片会自动绑定当前 SKU。");
+    writeImageProductionOutput({ok: false, error: "缺少 SKU，请先生成 Prompt 方案。"});
+    return;
+  }
+  if (!imageUrl) {
+    renderImageProductionStatus("缺少图片链接", "请先粘贴图片 URL", "支持 http/https 图片地址。");
+    writeImageProductionOutput({ok: false, sku, slot, error: "请先粘贴图片 URL。"});
+    return;
+  }
+  setCurrentImageSku(sku);
+  if (triggerButton) {
+    triggerButton.disabled = true;
+    triggerButton.textContent = "处理中...";
+  }
+  renderImageProductionStatus("正在下载", `${slot} 正在从链接归档`, "程序会下载图片并自动裁剪/填充成 1500x1500。");
+  setImageSlotCardStatus(slot, "正在下载图片链接...", "busy");
+  writeImageProductionOutput({ok: true, status: "downloading", sku, slot, image_url: imageUrl});
+  try {
+    const response = await fetch("/api/image-production/import-url", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        sku,
+        slot,
+        image_url: imageUrl,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    renderImageProductionStatus("链接归档完成", `${slot} 已保存`, payload.result?.file || "");
+    setImageSlotCardStatus(slot, `已归档：${payload.result?.file || ""}`, "ok");
+    writeImageProductionOutput(`链接归档完成\nSKU：${payload.result?.sku || sku}\n图片位置：${payload.result?.slot || slot}\n保存文件：${payload.result?.file || ""}`);
+  } catch (error) {
+    renderImageProductionStatus("链接归档失败", `${slot} 没有成功处理`, `${error.message} 如果是 ChatGPT 生成图，建议下载后点“上传成图”。`);
+    setImageSlotCardStatus(slot, `链接归档失败：${error.message}`, "error");
+    writeImageProductionOutput({ok: false, sku, slot, image_url: imageUrl, error: error.message});
+  } finally {
+    if (triggerButton) {
+      triggerButton.disabled = false;
+      triggerButton.textContent = "链接归档";
+    }
+  }
+}
+
+async function runImageLayoutRender(sku) {
+  renderImageProductionStatus("正在生成", "正在用模板生成副图/A+", "会使用已归档产品图作为视觉素材，文字由程序排版，避免图片模型乱写字。");
+  writeImageProductionOutput({ok: true, status: "rendering_layouts", sku});
+  try {
+    const response = await fetch("/api/image-production/render-layouts", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({sku}),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    const created = payload.result?.created || [];
+    renderImageProductionStatus("模板图已生成", `${created.length} 张副图/A+ 已归档`, created.length ? "现在可以基础质检或导出 ZIP。" : "没有新图生成，可能目标文件已经存在。");
+    writeImageProductionOutput([
+      `模板图生成完成`,
+      `SKU：${payload.result?.sku || sku}`,
+      `素材图：${payload.result?.source_image || ""}`,
+      `生成数量：${created.length}`,
+      "",
+      ...created.map((item) => `- ${item.file}`),
+    ].join("\n"));
+  } catch (error) {
+    renderImageProductionStatus("模板图生成失败", sku, error.message);
+    writeImageProductionOutput({ok: false, sku, action: "render-layouts", error: error.message});
+  }
+}
+
+async function copyImagePrompt(slot) {
+  const item = findImageSlot(slot);
+  if (!item) {
+    return;
+  }
+  const text = [
+    item.title,
+    "",
+    item.prompt,
+    "",
+    item.copy?.length ? `Copy:\n${item.copy.join("\n")}` : "",
+  ].filter(Boolean).join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    renderImageProductionStatus("已复制", `${item.file_name} 的 Prompt 已复制`, "可以粘贴到图片模型或素材工具里。");
+  } catch (error) {
+    if (imageProductionOutput) {
+      writeImageProductionOutput(text);
+    }
+    renderImageProductionStatus("已放到结果框", "浏览器不允许自动复制", "Prompt 已显示在下方结果框，可以手动复制。");
+  }
+}
+
+async function runImageAction(action) {
+  const sku = imageActionForm.elements.sku.value.trim();
+  if (!sku) {
+    renderImageProductionStatus("缺少 SKU", "请先填写 SKU", "");
+    writeImageProductionOutput({ok: false, error: "缺少 SKU。"});
+    return;
+  }
+  setCurrentImageSku(sku);
+  if (!currentImagePlan || currentImageSku !== sku) {
+    await loadImagePlanBySku(sku, {quiet: true});
+  }
+  if (action === "render-layouts") {
+    await runImageLayoutRender(sku);
+    return;
+  }
+  const endpoint = action === "qc" ? "/api/image-production/qc" : "/api/image-production/export";
+  renderImageProductionStatus(action === "qc" ? "正在质检" : "正在导出", "图片工厂正在处理当前 SKU", sku);
+  writeImageProductionOutput({ok: true, status: action === "qc" ? "checking" : "exporting", sku});
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ sku }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    const qcReport = payload.result?.report;
+    const detail = action === "qc"
+      ? (qcReport?.message || "qc-report.json 已更新。")
+      : "final-package.zip 已生成。";
+    const title = action === "qc" && qcReport?.image_count === 0 ? "未找到已归档图片" : (action === "qc" ? "质检完成" : "导出完成");
+    renderImageProductionStatus(action === "qc" ? "质检完成" : "导出完成", title, detail);
+    if (action === "qc") {
+      writeImageProductionOutput(formatQcReport(qcReport));
+    } else {
+      writeImageProductionOutput(`导出完成\nSKU：${payload.result?.sku || sku}\nZIP：${payload.result?.zip_path || ""}`);
+    }
+  } catch (error) {
+    renderImageProductionStatus("操作失败", "图片工厂没有完成请求", error.message);
+    writeImageProductionOutput({ok: false, sku, action, error: error.message});
+  }
+}
+
 
 tabButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -1445,6 +1976,10 @@ tabButtons.forEach((button) => {
       convertExchangeRate();
       convertWeight();
       convertDimension();
+    }
+    if (button.dataset.tabTarget === "image-production-panel" && !hasLoadedImageJobs) {
+      hasLoadedImageJobs = true;
+      loadImageProductionJobs();
     }
   });
 });
@@ -1472,6 +2007,71 @@ asinReviewsForm.addEventListener("submit", (event) => {
 });
 
 reviewsExportButton.addEventListener("click", exportReviewsCsv);
+
+if (imageProductionForm) {
+  imageProductionForm.addEventListener("submit", submitImageProduction);
+}
+
+if (imageJobsRefreshButton) {
+  imageJobsRefreshButton.addEventListener("click", loadImageProductionJobs);
+}
+
+if (imageJobsList) {
+  imageJobsList.addEventListener("click", (event) => {
+    const restoreCard = event.target.closest("[data-restore-sku]");
+    if (!restoreCard) {
+      return;
+    }
+    loadImagePlanBySku(restoreCard.dataset.restoreSku || "");
+  });
+}
+
+if (imageActionForm) {
+  const skuInput = imageActionForm.elements.sku;
+  if (skuInput) {
+    skuInput.addEventListener("blur", () => {
+      loadImagePlanBySku(skuInput.value, {quiet: true});
+    });
+    skuInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        loadImagePlanBySku(skuInput.value);
+      }
+    });
+  }
+  imageActionForm.addEventListener("click", (event) => {
+    const action = event.target.dataset.imageAction;
+    if (action) {
+      runImageAction(action);
+    }
+  });
+}
+
+if (imageSlotBoard) {
+  imageSlotBoard.addEventListener("click", (event) => {
+    const copyButton = event.target.closest("[data-copy-prompt]");
+    if (copyButton) {
+      const slot = copyButton.dataset.copyPrompt;
+      copyImagePrompt(slot);
+      return;
+    }
+    const importButton = event.target.closest("[data-import-url]");
+    if (importButton) {
+      const importSlot = importButton.dataset.importUrl;
+      const card = importButton.closest(".image-slot-card");
+      const input = card?.querySelector("input[data-slot-url]");
+      importImageSlotUrl(importSlot, input?.value.trim() || "", importButton);
+    }
+  });
+  imageSlotBoard.addEventListener("change", (event) => {
+    const slot = event.target.dataset.slotUpload;
+    const file = event.target.files?.[0];
+    if (slot && file) {
+      uploadImageSlot(slot, file);
+      event.target.value = "";
+    }
+  });
+}
 
 exchangeForm.addEventListener("submit", (event) => {
   event.preventDefault();

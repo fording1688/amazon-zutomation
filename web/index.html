@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TradeHarbor 跨境生意操作台</title>
-    <link rel="stylesheet" href="/styles.css?v=20260514-batch-video" />
+    <link rel="stylesheet" href="/styles.css?v=20260526-layout-render" />
   </head>
   <body>
     <section class="platform-gateway" id="platform-gateway" aria-label="平台入口向导">
@@ -295,6 +295,10 @@
             <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="asin-reviews-panel" data-tab-target="asin-reviews-panel">
               <span>ASIN评论</span>
               <strong>Reviews</strong>
+            </button>
+            <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="image-production-panel" data-tab-target="image-production-panel">
+              <span>图片工厂</span>
+              <strong>Images</strong>
             </button>
             <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="utility-panel" data-tab-target="utility-panel">
               <span>实用工具</span>
@@ -740,6 +744,110 @@
               </div>
             </section>
           </div>
+          <div class="tab-panel" id="image-production-panel" role="tabpanel">
+            <section class="panel image-production-panel">
+              <div class="panel-header">
+                <h2>Amazon 图片工厂</h2>
+                <p>这里直接调用仓库内的 Amazon Product Image Factory 核心 API。n8n 后续只负责调度、通知和审核。</p>
+              </div>
+
+              <div class="image-production-layout">
+                <form id="image-production-form" class="image-production-form">
+                  <label>
+                    <span>SKU</span>
+                    <input type="text" name="sku" placeholder="DMSPHD-CBN-001" required />
+                  </label>
+                  <label>
+                    <span>品牌</span>
+                    <input type="text" name="brand" placeholder="DMSPHD" required />
+                  </label>
+                  <label class="field-wide">
+                    <span>产品名称</span>
+                    <input type="text" name="product_name" placeholder="CBN Grinding Wheel for Chainsaw Sharpening" required />
+                  </label>
+                  <label class="field-wide">
+                    <span>包含物品和数量</span>
+                    <textarea name="included_items" rows="4" placeholder="1 x CBN grinding wheel, 1 x bushing kit" required></textarea>
+                  </label>
+                  <label>
+                    <span>材质</span>
+                    <input type="text" name="material" placeholder="CBN abrasive, steel core" />
+                  </label>
+                  <label>
+                    <span>尺寸</span>
+                    <input type="text" name="size" placeholder="145 mm x 22.2 mm bore" />
+                  </label>
+                  <label>
+                    <span>目标关键词</span>
+                    <input type="text" name="main_keyword" placeholder="cbn grinding wheel" required />
+                  </label>
+                  <label>
+                    <span>目标买家</span>
+                    <input type="text" name="target_buyer" placeholder="chainsaw sharpening shops" />
+                  </label>
+                  <label>
+                    <span>价格区间</span>
+                    <input type="text" name="price_range" placeholder="$30-$60" />
+                  </label>
+                  <label>
+                    <span>图片风格</span>
+                    <input type="text" name="image_style" value="clean premium industrial Amazon infographic" />
+                  </label>
+                  <label class="field-wide">
+                    <span>参考图片 URL</span>
+                    <textarea name="reference_images" rows="5" placeholder="每行一个图片 URL"></textarea>
+                  </label>
+                  <div class="image-production-actions">
+                    <button type="submit" class="primary-btn">生成 Prompt 方案</button>
+                  </div>
+                </form>
+
+                <aside class="image-production-status" id="image-production-status">
+                  <span>等待提交</span>
+                  <strong>当前页面会调用同一程序内的图片工厂模块</strong>
+                  <p>只需要启动当前 TradeHarbor 工作台，不需要再开第二个端口。</p>
+                </aside>
+              </div>
+            </section>
+
+            <section class="panel image-upload-panel">
+              <div class="panel-header">
+                <h2>图片清单</h2>
+                <p>先生成 Prompt 方案；这里会列出每张图该怎么做。副图和 A+ 的文字层会走 HTML/CSS，不靠图片模型写长文字。</p>
+              </div>
+              <div class="image-slot-board" id="image-slot-board">
+                <div class="empty-image-jobs">
+                  <strong>还没有图片方案</strong>
+                  <p>先在上面填写 SKU 信息并点击“生成 Prompt 方案”。</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel image-actions-panel">
+              <div class="panel-header">
+                <h2>质检和导出</h2>
+                <p>对当前 SKU 已归档图片做基础质检，并导出最终 ZIP 图片包。</p>
+              </div>
+              <form id="image-action-form" class="image-action-form">
+                <label>
+                  <span>SKU</span>
+                  <input type="text" name="sku" placeholder="DMSPHD-CBN-001" required />
+                </label>
+                <button type="button" class="ghost-btn" data-image-action="render-layouts">生成副图/A+</button>
+                <button type="button" class="ghost-btn" data-image-action="qc">基础质检</button>
+                <button type="button" class="primary-btn" data-image-action="export">导出 ZIP</button>
+              </form>
+              <pre class="image-production-output" id="image-production-output">等待操作</pre>
+            </section>
+
+            <section class="panel image-jobs-panel">
+              <div class="panel-header">
+                <h2>最近图片任务</h2>
+                <p>这里只显示从当前工作台提交过的 Prompt 生成记录。</p>
+              </div>
+              <div class="image-jobs-list" id="image-jobs-list"></div>
+            </section>
+          </div>
           <div class="tab-panel" id="utility-panel" role="tabpanel">
             <section class="panel utility-panel">
               <div class="panel-header">
@@ -960,6 +1068,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=20260514-switches"></script>
+    <script src="/app.js?v=20260526-layout-render"></script>
   </body>
 </html>

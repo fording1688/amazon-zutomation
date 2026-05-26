@@ -562,7 +562,8 @@ button {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -573,10 +574,17 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: none;
   border-color: rgba(201, 109, 50, 0.55);
   transform: translateY(-1px);
+}
+
+textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.55;
 }
 
 .checkbox-row {
@@ -627,6 +635,402 @@ select:focus {
 
 .results-panel {
   overflow: hidden;
+}
+
+.image-production-panel,
+.image-upload-panel,
+.image-actions-panel,
+.image-jobs-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.image-production-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 5px;
+  background: linear-gradient(90deg, var(--harbor), var(--brand));
+}
+
+.image-production-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
+  gap: 18px;
+  padding: 22px 24px 24px;
+}
+
+.image-production-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.image-production-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.image-production-form span,
+.image-production-status span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.image-production-actions {
+  display: flex;
+  gap: 12px;
+  grid-column: 1 / -1;
+}
+
+.image-production-status {
+  align-self: stretch;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 260px;
+  padding: 22px;
+  border: 1px solid rgba(36, 106, 95, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.image-production-status strong {
+  font-size: 25px;
+  line-height: 1.18;
+}
+
+.image-production-status p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.62;
+}
+
+.image-jobs-panel {
+  margin-top: 22px;
+}
+
+.image-upload-panel,
+.image-actions-panel {
+  margin-top: 22px;
+}
+
+.image-action-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(220px, 1fr) auto;
+  gap: 14px;
+  padding: 22px 24px 24px;
+  align-items: end;
+}
+
+.image-action-form {
+  grid-template-columns: minmax(220px, 1fr) auto auto auto;
+}
+
+.image-action-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.image-slot-board {
+  display: grid;
+  gap: 24px;
+  padding: 22px 24px 24px;
+}
+
+.image-slot-group {
+  display: grid;
+  gap: 14px;
+}
+
+.image-slot-group h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.image-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.image-slot-card {
+  display: grid;
+  gap: 13px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.image-slot-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.image-slot-topline span,
+.image-slot-topline em {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.image-slot-topline span {
+  color: var(--harbor);
+}
+
+.image-slot-topline em {
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: var(--brand-dark);
+  background: rgba(216, 116, 47, 0.12);
+}
+
+.image-slot-card h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.image-slot-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.image-slot-card dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.image-slot-card dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.image-slot-card dd {
+  margin: 3px 0 0;
+  line-height: 1.4;
+}
+
+.image-slot-card details {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.image-slot-card summary {
+  cursor: pointer;
+  color: var(--harbor);
+  font-weight: 900;
+}
+
+.image-slot-card pre {
+  max-height: 160px;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 12px;
+  border-radius: 12px;
+  color: #fff8ec;
+  background: #17212b;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+
+.image-slot-card ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.image-slot-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.image-slot-url-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.image-slot-url-row input {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font: inherit;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.image-slot-url-row button:disabled {
+  opacity: 0.68;
+  cursor: progress;
+}
+
+.image-slot-card-status {
+  min-height: 20px;
+  margin: -2px 0 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.image-slot-card[data-state="busy"] .image-slot-card-status {
+  color: var(--brand-dark);
+}
+
+.image-slot-card[data-state="ok"] {
+  border-color: rgba(32, 139, 104, 0.55);
+  background: rgba(240, 255, 249, 0.86);
+}
+
+.image-slot-card[data-state="ok"] .image-slot-card-status {
+  color: var(--success);
+}
+
+.image-slot-card[data-state="error"] {
+  border-color: rgba(168, 61, 45, 0.45);
+  background: rgba(255, 246, 244, 0.9);
+}
+
+.image-slot-card[data-state="error"] .image-slot-card-status {
+  color: #a83d2d;
+}
+
+.slot-upload-btn {
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  padding: 12px 14px;
+  color: #fff;
+  background: var(--harbor);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.slot-upload-btn input {
+  display: none;
+}
+
+.image-production-output {
+  margin: 0 24px 24px;
+  min-height: 120px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 16px;
+  border-radius: 14px;
+  color: #fff8ec;
+  background: #17212b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.image-jobs-list {
+  display: grid;
+  gap: 14px;
+  padding: 22px 24px 24px;
+}
+
+.empty-image-jobs,
+.image-job-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.empty-image-jobs {
+  padding: 22px;
+}
+
+.empty-image-jobs strong {
+  display: block;
+  font-size: 18px;
+}
+
+.empty-image-jobs p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.image-job-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.image-job-card[data-restore-sku] {
+  cursor: pointer;
+}
+
+.image-job-card[data-restore-sku]:hover {
+  border-color: rgba(36, 106, 95, 0.45);
+  box-shadow: 0 12px 28px rgba(36, 106, 95, 0.12);
+}
+
+.image-job-card h3 {
+  margin: 8px 0 4px;
+  font-size: 20px;
+}
+
+.image-job-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.image-job-status {
+  display: inline-flex;
+  width: max-content;
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: var(--harbor);
+  background: rgba(36, 106, 95, 0.1);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.image-job-status.is-ok {
+  color: #fff;
+  background: var(--success);
+}
+
+.image-job-status.is-error {
+  color: #fff;
+  background: #a83d2d;
+}
+
+.image-job-card dl {
+  display: grid;
+  grid-template-columns: 1.4fr 0.5fr 0.8fr;
+  gap: 12px;
+  margin: 0;
+}
+
+.image-job-card dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.image-job-card dd {
+  margin: 5px 0 0;
+  line-height: 1.45;
+}
+
+.image-job-error {
+  color: #8b1e14 !important;
+}
+
+.image-job-card a {
+  color: var(--harbor);
+  font-weight: 900;
 }
 
 .stats-grid {
@@ -720,6 +1124,20 @@ td {
     grid-template-columns: repeat(3, minmax(150px, 1fr));
   }
 
+  .image-production-layout,
+  .image-production-form,
+  .image-action-form {
+    grid-template-columns: 1fr;
+  }
+
+  .image-slot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .image-job-card dl {
+    grid-template-columns: 1fr;
+  }
+
   .stats-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -750,6 +1168,8 @@ td {
 
   .panel-header,
   .filters-grid,
+  .image-production-layout,
+  .image-jobs-list,
   .stats-grid,
   .table-wrap {
     padding-left: 18px;
@@ -780,6 +1200,16 @@ td {
   .actions {
     grid-column: auto;
     flex-direction: column;
+  }
+
+  .image-production-actions {
+    flex-direction: column;
+  }
+
+  .image-slot-grid,
+  .image-slot-actions,
+  .image-slot-url-row {
+    grid-template-columns: 1fr;
   }
 }
 

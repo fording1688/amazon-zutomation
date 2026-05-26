@@ -9,12 +9,13 @@ import socket
 import subprocess
 import sys
 import time
+import tempfile
 from urllib.error import HTTPError, URLError
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, ProxyHandler, urlopen
 
 from ai_opportunity import analyze_ai_opportunity, build_bundle_plan
 from amazon_reviews import fetch_asin_reviews
@@ -30,7 +31,11 @@ ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web"
 DATA_FILE = ROOT / "sample_products.csv"
 GENERATED_DIR = WEB_DIR / "generated"
+IMAGE_PRODUCTION_JOBS_FILE = ROOT / "image_production_jobs.json"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+IMAGE_FACTORY_DIR = ROOT / "amazon-image-factory"
+IMAGE_FACTORY_STORAGE_DIR = IMAGE_FACTORY_DIR / "storage" / "Amazon-Images"
+IMAGE_FACTORY_VENV_PYTHON = IMAGE_FACTORY_DIR / ".venv" / "bin" / "python"
 VIDEO_REMIX_DIR = ROOT / "video-remix-api"
 VIDEO_REMIX_PORT = int(os.environ.get("VIDEO_REMIX_PORT", "8010"))
 VIDEO_REMIX_PROCESS = None
@@ -78,6 +83,680 @@ def to_int(value):
 
 def is_prime(value):
     return normalize_text(value) in {"yes", "y", "true", "1", "prime"}
+
+
+def read_json_body(handler):
+    content_length = int(handler.headers.get("Content-Length", "0") or 0)
+    body = handler.rfile.read(content_length) if content_length else b"{}"
+    try:
+        return json.loads(body.decode("utf-8") or "{}")
+    except json.JSONDecodeError as error:
+        raise ValueError(f"JSON 格式不正确：{error}") from error
+
+
+def load_image_production_jobs():
+    if not IMAGE_PRODUCTION_JOBS_FILE.exists():
+        return []
+    try:
+        with IMAGE_PRODUCTION_JOBS_FILE.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def save_image_production_job(job):
+    jobs = load_image_production_jobs()
+    jobs.insert(0, job)
+    with IMAGE_PRODUCTION_JOBS_FILE.open("w", encoding="utf-8") as handle:
+        json.dump(jobs[:80], handle, ensure_ascii=False, indent=2)
+
+
+IMAGE_FACTORY_SLOT_FILES = {
+    "01-main-image": "01-main-image.png",
+    "02-whats-included": "02-whats-included.png",
+    "03-key-features": "03-key-features.png",
+    "04-how-to-use": "04-how-to-use.png",
+    "05-size-spec": "05-size-spec.png",
+    "06-lifestyle": "06-lifestyle.png",
+    "07-brand-bulk-support": "07-brand-bulk-support.png",
+    "a-plus-01-hero-banner": "A+/01-hero-banner.png",
+    "a-plus-02-included-items": "A+/02-included-items.png",
+    "a-plus-03-usage-steps": "A+/03-usage-steps.png",
+    "a-plus-04-benefits": "A+/04-benefits.png",
+    "a-plus-05-brand-story": "A+/05-brand-story.png",
+    "01-hero-banner": "A+/01-hero-banner.png",
+    "02-included-items": "A+/02-included-items.png",
+    "03-usage-steps": "A+/03-usage-steps.png",
+    "04-benefits": "A+/04-benefits.png",
+    "05-brand-story": "A+/05-brand-story.png",
+}
+
+IMAGE_FACTORY_PROVIDER_STACK = {
+    "text_planning": {
+        "provider": "openrouter",
+        "primary_model": "openai/gpt-4.1",
+        "fallback_model": "anthropic/claude-3.5-sonnet",
+        "purpose": "Generate Amazon image strategy, prompts, copy, and compliance rules.",
+    },
+    "image_generation": {
+        "provider": "openrouter",
+        "primary_model": "openai/gpt-image-2",
+        "fallback_model": "openai/gpt-image-1",
+        "purpose": "Generate product/lifestyle image assets; do not render long text.",
+    },
+    "image_editing": {
+        "provider": "openrouter",
+        "primary_model": "openai/image-edit",
+        "fallback_model": "stability-ai-stable-image",
+        "purpose": "Edit product images or compose product visuals when needed.",
+    },
+    "layout_generation": {
+        "provider": "playwright",
+        "primary_model": "html-css-renderer",
+        "fallback_model": None,
+        "purpose": "Render text-heavy Amazon secondary images and A+ modules from HTML/CSS templates.",
+    },
+    "image_processing": {
+        "provider": "pillow",
+        "primary_model": "pillow",
+        "fallback_model": None,
+        "purpose": "Crop, pad, compress, normalize, and archive images.",
+    },
+    "quality_check": {
+        "provider": "openrouter",
+        "primary_model": "openai/gpt-4.1",
+        "fallback_model": "google/gemini-2.5-pro",
+        "purpose": "Check product quantity, compliance, off-Amazon contact, logos, and spelling.",
+    },
+}
+
+IMAGE_FACTORY_TEXT_RENDERING_POLICY = {
+    "rule": "Do not rely on image generation models to render long text inside images.",
+    "main_image": "No text is allowed.",
+    "secondary_images": "Use HTML/CSS templates for text layers; image generation should produce only product or background visuals.",
+    "a_plus": "Use HTML/CSS templates for text-heavy modules and compose product visuals into the layout.",
+}
+
+
+def image_factory_safe_sku(sku):
+    safe = "".join(ch for ch in sku if ch.isalnum() or ch in {"-", "_", "."}).strip()
+    if not safe:
+        raise ValueError("SKU 不合法。")
+    return safe
+
+
+def image_factory_sku_dir(sku):
+    path = IMAGE_FACTORY_STORAGE_DIR / image_factory_safe_sku(sku)
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "A+").mkdir(exist_ok=True)
+    return path
+
+
+def image_factory_write_json(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+
+def image_factory_read_json(path):
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def image_factory_load_plan(sku):
+    sku = str(sku or "").strip()
+    if not sku:
+        raise ValueError("sku 不能为空。")
+    root = image_factory_sku_dir(sku)
+    prompts_path = root / "prompts.json"
+    if not prompts_path.exists():
+        raise ValueError(f"没有找到 SKU {sku} 的 prompts.json。请先生成 Prompt 方案。")
+    plan = image_factory_read_json(prompts_path)
+    return {
+        "ok": True,
+        "sku": sku,
+        "prompts_path": str(prompts_path),
+        "folder_path": str(root),
+        "plan": plan,
+    }
+
+
+def image_factory_hydrate_job(job):
+    hydrated = dict(job)
+    sku = hydrated.get("sku")
+    factory_response = dict(hydrated.get("factory_response") or {})
+    if sku and not factory_response.get("plan"):
+        prompts_path = image_factory_sku_dir(sku) / "prompts.json"
+        if prompts_path.exists():
+            try:
+                factory_response["sku"] = sku
+                factory_response["prompts_path"] = str(prompts_path)
+                factory_response["plan"] = image_factory_read_json(prompts_path)
+            except (OSError, json.JSONDecodeError):
+                pass
+    hydrated["factory_response"] = factory_response
+    return hydrated
+
+
+def image_factory_status_path(sku):
+    return image_factory_sku_dir(sku) / "status.json"
+
+
+def image_factory_update_status(sku, values):
+    path = image_factory_status_path(sku)
+    status = image_factory_read_json(path)
+    status.update(values)
+    status.setdefault("sku", sku)
+    status["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    image_factory_write_json(path, status)
+    return status
+
+
+def image_factory_prompt_item(
+    slot,
+    file_name,
+    title,
+    prompt,
+    copy=None,
+    qc_rules=None,
+    negative_prompt="",
+    generation_method="image_model",
+    provider_role="image_generation",
+    layout_template=None,
+):
+    return {
+        "slot": slot,
+        "file_name": file_name,
+        "title": title,
+        "generation_method": generation_method,
+        "provider_role": provider_role,
+        "model_preference": IMAGE_FACTORY_PROVIDER_STACK.get(provider_role, {}),
+        "layout_template": layout_template,
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "copy": copy or [],
+        "qc_rules": qc_rules or [],
+    }
+
+
+def image_factory_generate_prompts(product):
+    sku = product["sku"]
+    context = (
+        f"Brand: {product['brand']}. SKU: {sku}. Product: {product['product_name']}. "
+        f"Included items: {product['included_items']}. Material: {product.get('material') or 'not specified'}. "
+        f"Size: {product.get('size') or 'not specified'}. Main keyword: {product['main_keyword']}. "
+        f"Target buyer: {product.get('target_buyer') or 'Amazon buyers'}. "
+        f"Price range: {product.get('price_range') or 'not specified'}. "
+        f"Style: {product.get('image_style') or 'clean Amazon listing photography and infographic'}."
+    )
+    global_rules = [
+        "Main image must use pure white background.",
+        "Main image must not contain text, icons, badges, borders, packaging, hands, props, or lifestyle scene.",
+        "Product quantity must exactly match included_items.",
+        "No competitor logos.",
+        "No website, email, phone number, QR code, social handle, or off-Amazon contact information.",
+        "Secondary images and A+ modules may use text, but text must be short, accurate, and spelled correctly.",
+        "Avoid unsupported claims and exaggerated terms such as best, No.1, guaranteed, official, FDA approved, or certified unless provided.",
+    ]
+    negative = "extra products, wrong quantity, competitor logo, website, email, phone number, QR code, social media handle, misspelled text, exaggerated claims, watermark, low resolution, blurry image"
+    main_prompt = image_factory_prompt_item(
+        "01-main-image",
+        "01-main-image.png",
+        "White Background Main Image",
+        f"Create a 1500x1500 Amazon main image for {product['product_name']}. {context} Use a pure white #FFFFFF background. Show only the actual purchased contents exactly as listed in included items. Use realistic product photography, centered composition, clean lighting, natural product scale, sharp details. No text, no icon, no badge, no packaging, no hands, no props, no shadows that look like extra objects.",
+        [],
+        [*global_rules, "Main image canvas must be 1500x1500.", "Main image background must be pure white.", "Main image must contain no visible text."],
+        negative + ", text, icon, badge, packaging, hands, props, lifestyle background",
+        "image_model",
+        "image_generation",
+        None,
+    )
+    secondary_specs = [
+        ("02-whats-included", "02-whats-included.png", "What's Included", ["What's Included", product["included_items"], "Ready for accurate Amazon listing display"], "Create a clean Amazon infographic showing the exact included items with simple labels and separated product callouts."),
+        ("03-key-features", "03-key-features.png", "Key Features", ["Key Features", product.get("material") or "Durable material", "Built for consistent performance"], "Create a feature-focused Amazon secondary image with three clear callouts for material, build quality, and use value."),
+        ("04-how-to-use", "04-how-to-use.png", "How To Use", ["How To Use", "1. Install", "2. Align", "3. Use safely"], "Create a simple step-by-step usage infographic with clean numbered sections and product-focused visuals."),
+        ("05-size-spec", "05-size-spec.png", "Size Specification", ["Size Specification", product.get("size") or "Check actual listing size", "Confirm fit before purchase"], "Create a technical size-spec image with dimension arrows and clean readable specification labels."),
+        ("06-lifestyle", "06-lifestyle.png", "Lifestyle Scene", ["Built for Work", product.get("target_buyer") or "For practical buyers", "Clean, reliable product presentation"], "Create a realistic lifestyle scene showing the product in an appropriate use environment without adding unsupported accessories."),
+        ("07-brand-bulk-support", "07-brand-bulk-support.png", "Brand and Bulk Support", [product["brand"], "Bulk order support", "Consistent supply for business buyers"], "Create a professional brand support image for B2B buyers, clean industrial style, no external contact information."),
+    ]
+    secondary = [
+        image_factory_prompt_item(
+            slot,
+            file_name,
+            title,
+            f"{instruction} {context} Create only product/background visual elements. Do not render long text inside the image model output. Text copy will be rendered separately with HTML/CSS. Approved text copy: {json.dumps(copy, ensure_ascii=False)}.",
+            copy,
+            [*global_rules, "Secondary image canvas must be 1500x1500.", "Visible text must match approved copy.", "No off-Amazon contact information."],
+            negative,
+            "html_css_layout",
+            "layout_generation",
+            "secondary-square.html",
+        )
+        for slot, file_name, title, copy, instruction in secondary_specs
+    ]
+    aplus_specs = [
+        ("01-hero-banner", "01-hero-banner.png", "A+ Hero Banner", [product["brand"], product["product_name"], product["main_keyword"]], "Create a premium A+ hero banner visual with brand-led product presentation and concise headline area."),
+        ("02-included-items", "02-included-items.png", "A+ Included Items Module", ["Package Contents", product["included_items"]], "Create an A+ module that clearly explains the package contents and quantity."),
+        ("03-usage-steps", "03-usage-steps.png", "A+ Usage Steps Module", ["Simple Setup", "Use with care", "Check compatibility"], "Create an A+ usage steps module with structured visual steps."),
+        ("04-benefits", "04-benefits.png", "A+ Benefits Module", ["Practical design", "Reliable material", "Clear fit information"], "Create an A+ benefits module that explains practical buyer value without exaggerated claims."),
+        ("05-brand-story", "05-brand-story.png", "A+ Application and Brand Story Module", [product["brand"], "For business and practical users", "Focused on product consistency"], "Create an A+ application and brand story module with professional brand tone and product context."),
+    ]
+    aplus = [
+        image_factory_prompt_item(
+            slot,
+            file_name,
+            title,
+            f"{instruction} {context} Create only product/background visual elements. Do not render long text inside the image model output. Text copy will be rendered separately with HTML/CSS. Approved text copy: {json.dumps(copy, ensure_ascii=False)}.",
+            copy,
+            [*global_rules, "No off-Amazon contact information.", "Visible text must be spelled correctly.", "Avoid exaggerated or unsupported claims."],
+            negative,
+            "html_css_layout",
+            "layout_generation",
+            "aplus-module.html",
+        )
+        for slot, file_name, title, copy, instruction in aplus_specs
+    ]
+    plan = {
+        "sku": sku,
+        "brand": product["brand"],
+        "product_name": product["product_name"],
+        "provider_stack": IMAGE_FACTORY_PROVIDER_STACK,
+        "text_rendering_policy": IMAGE_FACTORY_TEXT_RENDERING_POLICY,
+        "main_image_prompt": main_prompt,
+        "secondary_images": secondary,
+        "a_plus_modules": aplus,
+        "global_compliance_rules": global_rules,
+    }
+    path = image_factory_sku_dir(sku) / "prompts.json"
+    image_factory_write_json(path, plan)
+    image_factory_update_status(sku, {"prompt_status": "generated"})
+    return {"ok": True, "sku": sku, "prompts_path": str(path), "plan": plan}
+
+
+def image_factory_process_upload(sku, slot, file_payload):
+    if slot not in IMAGE_FACTORY_SLOT_FILES:
+        raise ValueError(f"未知图片位置：{slot}")
+    root = image_factory_sku_dir(sku)
+    output_path = root / IMAGE_FACTORY_SLOT_FILES[slot]
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    suffix = Path(file_payload.get("filename") or "image.png").suffix or ".png"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
+        temp.write(file_payload.get("content") or b"")
+        source_path = Path(temp.name)
+    try:
+        script = (
+            "from PIL import Image, ImageOps\n"
+            "from pathlib import Path\n"
+            "src=Path(r'%s')\n"
+            "dst=Path(r'%s')\n"
+            "img=ImageOps.exif_transpose(Image.open(src)).convert('RGBA')\n"
+            "img.thumbnail((1500,1500), Image.Resampling.LANCZOS)\n"
+            "canvas=Image.new('RGBA',(1500,1500),(255,255,255,255))\n"
+            "canvas.alpha_composite(img,((1500-img.width)//2,(1500-img.height)//2))\n"
+            "dst.parent.mkdir(parents=True, exist_ok=True)\n"
+            "canvas.convert('RGB').save(dst,'PNG',optimize=True)\n"
+        ) % (str(source_path), str(output_path))
+        python_bin = str(IMAGE_FACTORY_VENV_PYTHON if IMAGE_FACTORY_VENV_PYTHON.exists() else sys.executable)
+        subprocess.run([python_bin, "-c", script], check=True, capture_output=True, text=True)
+    finally:
+        source_path.unlink(missing_ok=True)
+    image_factory_update_status(sku, {"image_status": "uploaded", "last_uploaded_slot": slot})
+    return {
+        "ok": True,
+        "sku": sku,
+        "slot": slot,
+        "file": str(output_path.relative_to(root)),
+        "path": str(output_path),
+    }
+
+
+def image_factory_download_image(url):
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("请输入有效的 http/https 图片地址。")
+    if parsed.netloc.endswith("chatgpt.com") and parsed.path.startswith("/s/"):
+        raise ValueError("这是 ChatGPT 分享页链接，不是图片直链。请在图片上右键复制图片地址，或下载图片后用“上传成图”。")
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 AmazonZutomationImageFactory/1.0",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        },
+    )
+    try:
+        opener = build_opener(ProxyHandler({}))
+        with opener.open(request, timeout=25) as response:
+            content_type = response.headers.get("Content-Type", "")
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > MAX_UPLOAD_BYTES:
+                raise ValueError("图片太大，请控制在 25MB 以内。")
+            content = response.read(MAX_UPLOAD_BYTES + 1)
+    except HTTPError as error:
+        raise ValueError(f"图片地址无法下载：HTTP {error.code}") from error
+    except URLError as error:
+        raise ValueError(f"图片地址无法下载：{error.reason}") from error
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise ValueError("图片太大，请控制在 25MB 以内。")
+    normalized_type = content_type.split(";")[0].strip().lower()
+    suffix = Path(parsed.path).suffix.lower()
+    suffix_is_image = suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+    content_looks_like_html = content.lstrip()[:20].lower().startswith((b"<!doctype", b"<html"))
+    if normalized_type and not normalized_type.startswith("image/") and not suffix_is_image:
+        raise ValueError("这个链接不是直接图片地址。请右键图片选择“复制图片地址”，或先下载图片后用“上传成图”。")
+    if content_looks_like_html:
+        raise ValueError("这个链接打开的是网页，不是图片文件。请复制图片本身的地址，或下载后上传。")
+    if not suffix_is_image:
+        if "png" in content_type:
+            suffix = ".png"
+        elif "webp" in content_type:
+            suffix = ".webp"
+        else:
+            suffix = ".jpg"
+    return {
+        "filename": f"remote-image{suffix}",
+        "content": content,
+    }
+
+
+def image_factory_process_url_import(sku, slot, image_url):
+    file_payload = image_factory_download_image(image_url)
+    result = image_factory_process_upload(sku, slot, file_payload)
+    result["source_url"] = image_url
+    return result
+
+
+def image_factory_find_product_visual(root):
+    preferred = [
+        root / "01-main-image.png",
+        root / "02-whats-included.png",
+        root / "03-key-features.png",
+    ]
+    for path in preferred:
+        if path.exists():
+            return path
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and image_factory_is_deliverable_image(path, root):
+            return path
+    return None
+
+
+def image_factory_is_deliverable_image(path, root):
+    if path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        return False
+    relative_parts = path.relative_to(root).parts
+    return not relative_parts or relative_parts[0] != "final-package"
+
+
+def image_factory_render_layouts(sku, overwrite=False):
+    root = image_factory_sku_dir(sku)
+    plan_payload = image_factory_load_plan(sku)
+    plan = plan_payload["plan"]
+    product_visual = image_factory_find_product_visual(root)
+    if not product_visual:
+        raise ValueError("还没有可用产品图。请先上传 01-main-image，或至少上传一张产品素材图。")
+
+    tasks = []
+    for item in [*(plan.get("secondary_images") or []), *(plan.get("a_plus_modules") or [])]:
+        if item.get("generation_method") != "html_css_layout":
+            continue
+        slot = item.get("slot")
+        if slot not in IMAGE_FACTORY_SLOT_FILES:
+            continue
+        output_path = root / IMAGE_FACTORY_SLOT_FILES[slot]
+        if output_path.exists() and not overwrite:
+            continue
+        tasks.append({
+            "slot": slot,
+            "file": str(output_path.relative_to(root)),
+            "output_path": str(output_path),
+            "title": item.get("title") or item.get("file_name") or slot,
+            "copy": item.get("copy") or [],
+            "layout_template": item.get("layout_template") or "",
+            "brand": plan.get("brand") or "",
+            "product_name": plan.get("product_name") or "",
+        })
+
+    if not tasks:
+        return {
+            "ok": True,
+            "sku": sku,
+            "source_image": str(product_visual),
+            "created": [],
+            "skipped": "没有需要生成的模板图，或目标文件已存在。",
+        }
+
+    script = r'''
+import json
+import textwrap
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+payload = json.loads(r"""__PAYLOAD__""")
+source = Path(payload["source_image"])
+tasks = payload["tasks"]
+
+font_candidates = [
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/Library/Fonts/Arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+]
+
+def font(size, bold=False):
+    candidates = font_candidates
+    if bold:
+        candidates = [
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            *font_candidates,
+        ]
+    for candidate in candidates:
+        if Path(candidate).exists():
+            return ImageFont.truetype(candidate, size)
+    return ImageFont.load_default()
+
+def wrap_text(text, width=24):
+    text = str(text or "").strip()
+    if not text:
+        return ""
+    return "\n".join(textwrap.wrap(text, width=width, break_long_words=False))
+
+def paste_product(canvas, box):
+    img = ImageOps.exif_transpose(Image.open(source)).convert("RGBA")
+    max_w = box[2] - box[0]
+    max_h = box[3] - box[1]
+    img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+    left = box[0] + (max_w - img.width) // 2
+    top = box[1] + (max_h - img.height) // 2
+    canvas.alpha_composite(img, (left, top))
+
+def draw_secondary(task):
+    canvas = Image.new("RGBA", (1500, 1500), (255, 255, 255, 255))
+    draw = ImageDraw.Draw(canvas)
+    draw.rounded_rectangle((80, 80, 1420, 1420), radius=36, fill=(248, 250, 250, 255), outline=(219, 225, 231, 255), width=3)
+    draw.rounded_rectangle((130, 180, 690, 1320), radius=26, fill=(255, 255, 255, 255), outline=(220, 226, 232, 255), width=3)
+    paste_product(canvas, (170, 230, 650, 1260))
+    draw.text((760, 190), wrap_text(task["title"], 17), fill=(23, 33, 43), font=font(72, True), spacing=8)
+    y = 470
+    for point in (task.get("copy") or [])[:4]:
+        draw.rounded_rectangle((760, y, 1345, y + 150), radius=26, fill=(255, 255, 255, 255), outline=(226, 231, 236, 255), width=2)
+        draw.ellipse((795, y + 52, 825, y + 82), fill=(36, 106, 95, 255))
+        draw.text((850, y + 36), wrap_text(point, 26), fill=(48, 58, 72), font=font(34, False), spacing=4)
+        y += 184
+    if task.get("brand"):
+        draw.text((760, 1240), str(task["brand"]), fill=(36, 106, 95), font=font(34, True))
+    return canvas
+
+def draw_aplus(task):
+    canvas = Image.new("RGBA", (1500, 1500), (247, 248, 248, 255))
+    draw = ImageDraw.Draw(canvas)
+    draw.text((96, 90), str(task.get("brand") or "").upper(), fill=(36, 106, 95), font=font(32, True))
+    draw.text((96, 145), wrap_text(task["title"], 24), fill=(23, 33, 43), font=font(76, True), spacing=8)
+    draw.rounded_rectangle((96, 390, 720, 1320), radius=28, fill=(255, 255, 255, 255), outline=(217, 224, 230, 255), width=3)
+    paste_product(canvas, (150, 455, 666, 1260))
+    y = 430
+    for point in (task.get("copy") or [])[:4]:
+        draw.rounded_rectangle((790, y, 1388, y + 165), radius=18, fill=(255, 255, 255, 255))
+        draw.rectangle((790, y, 805, y + 165), fill=(36, 106, 95))
+        draw.text((840, y + 38), wrap_text(point, 28), fill=(48, 58, 72), font=font(34), spacing=4)
+        y += 205
+    return canvas
+
+created = []
+for task in tasks:
+    output = Path(task["output_path"])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    canvas = draw_aplus(task) if "aplus" in task.get("layout_template", "") else draw_secondary(task)
+    canvas.convert("RGB").save(output, "PNG", optimize=True)
+    created.append({"slot": task["slot"], "file": task["file"], "path": str(output)})
+
+print(json.dumps({"created": created}, ensure_ascii=False))
+'''
+    payload = {
+        "source_image": str(product_visual),
+        "tasks": tasks,
+    }
+    script = script.replace("__PAYLOAD__", json.dumps(payload, ensure_ascii=False).replace("\\", "\\\\").replace('"""', '\\"\\"\\"'))
+    python_bin = str(IMAGE_FACTORY_VENV_PYTHON if IMAGE_FACTORY_VENV_PYTHON.exists() else sys.executable)
+    result = subprocess.run([python_bin, "-c", script], check=True, capture_output=True, text=True)
+    rendered = json.loads(result.stdout or "{}")
+    created = rendered.get("created") or []
+    image_factory_update_status(sku, {
+        "layout_status": "rendered",
+        "layout_rendered_count": len(created),
+        "layout_source_image": str(product_visual),
+    })
+    return {
+        "ok": True,
+        "sku": sku,
+        "source_image": str(product_visual),
+        "created": created,
+    }
+
+
+def image_factory_qc(sku):
+    root = image_factory_sku_dir(sku)
+    images = []
+    expected_images = sorted(set(IMAGE_FACTORY_SLOT_FILES.values()))
+    existing_image_names = set()
+    for path in sorted(root.rglob("*")):
+        if not image_factory_is_deliverable_image(path, root):
+            continue
+        relative_name = str(path.relative_to(root))
+        existing_image_names.add(relative_name)
+        issues = []
+        try:
+            script = (
+                "from PIL import Image\n"
+                "img=Image.open(r'%s')\n"
+                "print(f'{img.size[0]}x{img.size[1]}')\n"
+            ) % str(path)
+            python_bin = str(IMAGE_FACTORY_VENV_PYTHON if IMAGE_FACTORY_VENV_PYTHON.exists() else sys.executable)
+            result = subprocess.run([python_bin, "-c", script], check=True, capture_output=True, text=True)
+            if result.stdout.strip() != "1500x1500":
+                issues.append(f"Image size is {result.stdout.strip()}, expected 1500x1500.")
+        except Exception as error:
+            issues.append(f"Cannot inspect image: {error}")
+        images.append({
+            "image_name": relative_name,
+            "pass": not issues,
+            "issues": issues,
+            "suggested_fix_prompt": "" if not issues else "Reprocess this image as 1500x1500 with stricter Amazon compliance rules.",
+        })
+    missing_images = [name for name in expected_images if name not in existing_image_names]
+    report = {
+        "sku": sku,
+        "pass": bool(images) and not missing_images and all(item["pass"] for item in images),
+        "message": "已找到图片并完成基础质检。" if images else "未找到已归档图片。请先在图片清单卡片里上传成图，或粘贴图片链接后点“链接归档”。",
+        "folder_path": str(root),
+        "image_count": len(images),
+        "expected_count": len(expected_images),
+        "missing_images": missing_images,
+        "images": images,
+    }
+    image_factory_write_json(root / "qc-report.json", report)
+    image_factory_update_status(sku, {"qc_status": "completed" if images else "no_images"})
+    return {"ok": True, "report": report}
+
+
+def image_factory_export(sku):
+    import zipfile
+    root = image_factory_sku_dir(sku)
+    image_files = [
+        path for path in sorted(root.rglob("*"))
+        if path.is_file() and image_factory_is_deliverable_image(path, root)
+    ]
+    if not image_files:
+        raise ValueError(f"SKU {sku} 还没有已归档图片，不能导出 ZIP。请先上传图片或使用链接归档。")
+    zip_path = root / "final-package.zip"
+    if zip_path.exists():
+        zip_path.unlink()
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(root.rglob("*")):
+            if path.is_file() and path != zip_path and (path.relative_to(root).parts or [""])[0] != "final-package":
+                archive.write(path, path.relative_to(root))
+    image_factory_update_status(sku, {"package_status": "exported", "package_path": str(zip_path)})
+    return {"ok": True, "sku": sku, "zip_path": str(zip_path)}
+
+
+def submit_image_production_job(payload):
+    required_fields = ["sku", "brand", "product_name", "included_items"]
+    missing = [field for field in required_fields if not str(payload.get(field) or "").strip()]
+    if not str(payload.get("main_keyword") or payload.get("target_keyword") or "").strip():
+        missing.append("main_keyword")
+    if missing:
+        raise ValueError("缺少必填字段：" + ", ".join(missing))
+
+    reference_images = payload.get("reference_images") or []
+    if isinstance(reference_images, str):
+        reference_images = [
+            item.strip()
+            for item in re.split(r"[\n,]+", reference_images)
+            if item.strip()
+        ]
+
+    job_payload = {
+        "job_id": payload.get("job_id") or f"{payload.get('sku')}-{int(time.time())}",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "sku": str(payload.get("sku") or "").strip(),
+        "brand": str(payload.get("brand") or "").strip(),
+        "product_name": str(payload.get("product_name") or "").strip(),
+        "included_items": str(payload.get("included_items") or "").strip(),
+        "material": str(payload.get("material") or "").strip(),
+        "size": str(payload.get("size") or "").strip(),
+        "main_keyword": str(payload.get("main_keyword") or payload.get("target_keyword") or "").strip(),
+        "target_buyer": str(payload.get("target_buyer") or "").strip(),
+        "price_range": str(payload.get("price_range") or "").strip(),
+        "image_style": str(payload.get("image_style") or "clean Amazon listing photography and infographic").strip(),
+        "reference_images": reference_images,
+        "reference_image_urls": reference_images,
+    }
+
+    job_record = {
+        **job_payload,
+        "status": "queued_locally",
+        "image_factory_mode": "in_process",
+        "factory_response": {},
+    }
+
+    try:
+        factory_payload = {key: value for key, value in job_payload.items() if key not in {"job_id", "created_at", "reference_images"}}
+        response_payload = image_factory_generate_prompts(factory_payload)
+        job_record["status"] = "prompts_generated"
+        job_record["factory_response"] = {
+            "sku": response_payload.get("sku"),
+            "prompts_path": response_payload.get("prompts_path"),
+            "plan": response_payload.get("plan"),
+        }
+    except Exception as error:
+        job_record["status"] = "image_factory_failed"
+        job_record["error"] = str(error)
+
+    save_image_production_job(job_record)
+    return job_record
 
 
 
@@ -514,6 +1193,135 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         started_at = time.monotonic()
         parsed = urlparse(self.path)
+        if parsed.path == "/api/image-production":
+            params = {}
+            try:
+                payload_in = read_json_body(self)
+                params = {
+                    "sku": payload_in.get("sku", ""),
+                    "target_keyword": payload_in.get("target_keyword", ""),
+                }
+                result = submit_image_production_job(payload_in)
+                payload = {"ok": True, "result": result}
+                status = HTTPStatus.OK
+            except ValueError as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_REQUEST
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json_and_log("image_production_submit", params, payload, status, started_at)
+            return
+
+        if parsed.path == "/api/image-production/upload":
+            params = {}
+            try:
+                fields, files = self.parse_multipart_form()
+                sku = (fields.get("sku") or "").strip()
+                slot = (fields.get("slot") or "").strip()
+                uploaded_image = files.get("file") or files.get("image")
+                params = {"sku": sku, "slot": slot}
+                if not sku or not slot:
+                    raise ValueError("sku 和 slot 都不能为空。")
+                if not uploaded_image:
+                    raise ValueError("请先选择图片文件。")
+                result = image_factory_process_upload(sku, slot, uploaded_image)
+                payload = {"ok": True, "result": result}
+                status = HTTPStatus.OK
+            except ValueError as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_REQUEST
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json_and_log("image_production_upload", params, payload, status, started_at)
+            return
+
+        if parsed.path == "/api/image-production/import-url":
+            params = {}
+            try:
+                payload_in = read_json_body(self)
+                sku = (payload_in.get("sku") or "").strip()
+                slot = (payload_in.get("slot") or "").strip()
+                image_url = (payload_in.get("image_url") or payload_in.get("url") or "").strip()
+                params = {"sku": sku, "slot": slot}
+                if not sku or not slot:
+                    raise ValueError("sku 和 slot 都不能为空。")
+                if not image_url:
+                    raise ValueError("请先粘贴图片链接。")
+                result = image_factory_process_url_import(sku, slot, image_url)
+                payload = {"ok": True, "result": result}
+                status = HTTPStatus.OK
+            except ValueError as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_REQUEST
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json_and_log("image_production_import_url", params, payload, status, started_at)
+            return
+
+        if parsed.path == "/api/image-production/qc":
+            params = {}
+            try:
+                payload_in = read_json_body(self)
+                sku = (payload_in.get("sku") or "").strip()
+                params = {"sku": sku}
+                if not sku:
+                    raise ValueError("sku 不能为空。")
+                result = image_factory_qc(sku)
+                payload = {"ok": True, "result": result}
+                status = HTTPStatus.OK
+            except ValueError as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_REQUEST
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json_and_log("image_production_qc", params, payload, status, started_at)
+            return
+
+        if parsed.path == "/api/image-production/render-layouts":
+            params = {}
+            try:
+                payload_in = read_json_body(self)
+                sku = (payload_in.get("sku") or "").strip()
+                overwrite = bool(payload_in.get("overwrite", False))
+                params = {"sku": sku}
+                if not sku:
+                    raise ValueError("sku 不能为空。")
+                result = image_factory_render_layouts(sku, overwrite=overwrite)
+                payload = {"ok": True, "result": result}
+                status = HTTPStatus.OK
+            except ValueError as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_REQUEST
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json_and_log("image_production_render_layouts", params, payload, status, started_at)
+            return
+
+        if parsed.path == "/api/image-production/export":
+            params = {}
+            try:
+                payload_in = read_json_body(self)
+                sku = (payload_in.get("sku") or "").strip()
+                params = {"sku": sku}
+                if not sku:
+                    raise ValueError("sku 不能为空。")
+                result = image_factory_export(sku)
+                payload = {"ok": True, "result": result}
+                status = HTTPStatus.OK
+            except ValueError as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_REQUEST
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json_and_log("image_production_export", params, payload, status, started_at)
+            return
+
         if parsed.path == "/api/video-remix-service":
             params = {}
             try:
@@ -616,6 +1424,43 @@ class AmazonProductHandler(SimpleHTTPRequestHandler):
                 payload = {"ok": False, "error": str(error)}
                 status = HTTPStatus.BAD_GATEWAY
             self.send_json(payload, status)
+            return
+
+        if parsed.path == "/api/image-production/jobs":
+            started_at = time.monotonic()
+            params = {}
+            try:
+                jobs = [image_factory_hydrate_job(job) for job in load_image_production_jobs()]
+                payload = {
+                    "ok": True,
+                    "result": {
+                        "jobs": jobs,
+                        "image_factory_mode": "in_process",
+                    },
+                }
+                status = HTTPStatus.OK
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json_and_log("image_production_jobs", params, payload, status, started_at)
+            return
+
+        if parsed.path == "/api/image-production/plan":
+            started_at = time.monotonic()
+            params = {
+                key: values[0]
+                for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            }
+            try:
+                payload = {"ok": True, "result": image_factory_load_plan(params.get("sku", ""))}
+                status = HTTPStatus.OK
+            except ValueError as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_REQUEST
+            except Exception as error:
+                payload = {"ok": False, "error": str(error)}
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json_and_log("image_production_plan", params, payload, status, started_at)
             return
 
         if parsed.path == "/api/products":

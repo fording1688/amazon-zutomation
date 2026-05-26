@@ -4,6 +4,11 @@ __pycache__/
 amazon_results*.csv
 amazon_results*.json
 amazon_test_results.csv
+image_production_jobs.json
+amazon-image-factory/.env
+amazon-image-factory/.venv/
+amazon-image-factory/storage/Amazon-Images/*
+!amazon-image-factory/storage/Amazon-Images/.gitkeep
 
 .DS_Store
 web/generated/

@@ -138,3 +138,44 @@ python3 amazon_filter.py \
 - 自动抓取亚马逊页面数据
 - 支持多个关键词组合筛选
 - 支持利润率、佣金、重量等选品指标
+
+## n8n 图片生产工作流
+
+仓库新增了 Amazon listing 图片半自动生产能力。新的架构里，核心图片生产逻辑由独立程序/API 负责，n8n 只负责调度、通知、人工审核和状态更新。
+
+核心程序位置：
+
+```text
+amazon-image-factory/
+```
+
+第一版 MVP 支持本地 Web 表单、生成 prompts.json、上传手工生成图片、自动裁剪为 1500x1500、固定命名归档、基础质检和 ZIP 导出。
+
+图片工厂采用 provider-based 架构：
+
+- 文本规划：通过 OpenRouter 调 OpenAI GPT 模型，fallback 到其它 OpenRouter 模型
+- 图片生成：通过 OpenRouter 优先调 `openai/gpt-image-2`，fallback 到 `openai/gpt-image-1`
+- 图片编辑：OpenRouter 可用模型优先，必要时 fallback 到 Stability AI Stable Image API
+- 文本重的副图和 A+：HTML/CSS 模板 + Playwright 渲染
+- 图片处理：Pillow
+- 质检：通过 OpenRouter 调 Vision 模型
+
+原则：不要依赖图片生成模型渲染长文字；副图和 A+ 的文字层由 HTML/CSS 负责。
+
+n8n 外壳位置：
+
+```text
+n8n/amazon-image-generation/
+```
+
+它包含：
+
+- n8n 外壳设计：监听表格、新增 SKU、调用 `amazon-image-factory` API、发送飞书/Telegram 通知、接收人工审核结果、回写状态。
+- 旧版 n8n 草稿仍保留在目录中，后续应改成只调用图片工厂 API，不再把 Prompt、图片生成、质检逻辑写进 n8n 节点。
+- Web 程序里的 Amazon 工作台已经内置 `图片工厂` 标签页，并在同一个后端进程内调用 `amazon-image-factory` 核心模块；日常使用只需要启动 TradeHarbor 一个服务。
+
+详细配置见：
+
+```text
+amazon-image-factory/README.md
+```

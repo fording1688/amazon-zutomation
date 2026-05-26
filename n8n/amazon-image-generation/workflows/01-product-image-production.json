@@ -1,0 +1,368 @@
+{
+  "name": "Amazon Image Production - Submit Generate QA Send Approval",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "amazon-image-production",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-submit",
+      "name": "Webhook Submit Product",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1120, -160]
+    },
+    {
+      "parameters": {
+        "formTitle": "Amazon Image Production Request",
+        "formDescription": "Submit SKU product data and reference image URLs.",
+        "formFields": {
+          "values": [
+            {"fieldLabel": "SKU", "fieldType": "text", "requiredField": true},
+            {"fieldLabel": "Brand", "fieldType": "text", "requiredField": true},
+            {"fieldLabel": "Product name", "fieldType": "text", "requiredField": true},
+            {"fieldLabel": "Included items", "fieldType": "textarea", "requiredField": true},
+            {"fieldLabel": "Material", "fieldType": "text"},
+            {"fieldLabel": "Size", "fieldType": "text"},
+            {"fieldLabel": "Target keyword", "fieldType": "text", "requiredField": true},
+            {"fieldLabel": "Target buyer", "fieldType": "text"},
+            {"fieldLabel": "Reference image URLs", "fieldType": "textarea", "placeholder": "One image URL per line"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "form-submit",
+      "name": "Form Submit Product",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [-1120, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.body || $json;\nconst imageText = raw.reference_images || raw['Reference image URLs'] || raw.reference_image_urls || '';\nconst referenceImages = Array.isArray(imageText)\n  ? imageText\n  : String(imageText).split(/\\r?\\n|,/).map(v => v.trim()).filter(Boolean);\nconst product = {\n  job_id: raw.job_id || `${raw.sku || raw.SKU}-${Date.now()}`,\n  created_at: new Date().toISOString(),\n  sku: raw.sku || raw.SKU,\n  brand: raw.brand || raw.Brand,\n  product_name: raw.product_name || raw['Product name'],\n  included_items: raw.included_items || raw['Included items'],\n  material: raw.material || raw.Material || '',\n  size: raw.size || raw.Size || '',\n  target_keyword: raw.target_keyword || raw['Target keyword'],\n  target_buyer: raw.target_buyer || raw['Target buyer'] || '',\n  reference_images: referenceImages\n};\nif (!product.sku || !product.brand || !product.product_name || !product.included_items || !product.target_keyword) {\n  throw new Error('Missing required fields: sku, brand, product_name, included_items, target_keyword');\n}\nreturn [{ json: product }];"
+      },
+      "id": "normalize-input",
+      "name": "Normalize Product Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-840, -20]
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{$json.sku}}",
+        "driveId": "myDrive",
+        "folderId": "={{$env.GOOGLE_DRIVE_ROOT_FOLDER_ID}}",
+        "options": {}
+      },
+      "id": "create-sku-folder",
+      "name": "Create SKU Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [-600, -20],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_DRIVE_CREDENTIAL",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Normalize Product Input').first().json;\nconst folder = $json;\nreturn [{ json: { ...input, drive_folder_id: folder.id, drive_folder_url: folder.webViewLink || folder.webUrl || '' } }];"
+      },
+      "id": "attach-folder",
+      "name": "Attach Folder Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-380, -20]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "={{$env.GOOGLE_SHEET_ID}}",
+        "sheetName": "image_jobs",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "job_id": "={{$json.job_id}}",
+            "created_at": "={{$json.created_at}}",
+            "sku": "={{$json.sku}}",
+            "brand": "={{$json.brand}}",
+            "product_name": "={{$json.product_name}}",
+            "included_items": "={{$json.included_items}}",
+            "material": "={{$json.material}}",
+            "size": "={{$json.size}}",
+            "target_keyword": "={{$json.target_keyword}}",
+            "target_buyer": "={{$json.target_buyer}}",
+            "status": "generating",
+            "drive_folder_url": "={{$json.drive_folder_url}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "append-job-row",
+      "name": "Append Job Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [-160, -20],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_SHEETS_CREDENTIAL",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": $env.OPENAI_VISION_MODEL || \"gpt-4.1\",\n  \"input\": [{\n    \"role\": \"user\",\n    \"content\": [\n      {\"type\":\"input_text\",\"text\":\"Analyze these Amazon product reference images. Return strict JSON only. Product data: \" + JSON.stringify($json)},\n      ...($json.reference_images || []).map(url => ({\"type\":\"input_image\",\"image_url\": url}))\n    ]\n  }]\n}",
+        "options": {}
+      },
+      "id": "analyze-reference-images",
+      "name": "AI Vision Analyze Reference Images",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [80, -20],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_OPENAI_CREDENTIAL",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const product = $('Attach Folder Metadata').first().json;\nconst response = $json;\nconst text = response.output_text || response.output?.flatMap(o => o.content || []).map(c => c.text).filter(Boolean).join('\\n') || JSON.stringify(response);\nreturn [{ json: { ...product, reference_analysis: text } }];"
+      },
+      "id": "extract-reference-analysis",
+      "name": "Extract Reference Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, -20]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": $env.OPENAI_TEXT_MODEL || \"gpt-4.1\",\n  \"input\": [{\n    \"role\": \"user\",\n    \"content\": [{\"type\":\"input_text\",\"text\":\"Generate Amazon listing image prompts. Return strict JSON only. Main image must be pure white background and no text. Product package: \" + JSON.stringify($json)}]\n  }]\n}",
+        "options": {}
+      },
+      "id": "generate-prompt-plan",
+      "name": "AI Text Generate Prompt Plan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [540, -20],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_OPENAI_CREDENTIAL",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const product = $('Extract Reference Analysis').first().json;\nconst response = $json;\nconst outputText = response.output_text || response.output?.flatMap(o => o.content || []).map(c => c.text).filter(Boolean).join('\\n') || '{}';\nlet plan;\ntry { plan = JSON.parse(outputText.replace(/^```json\\s*|```$/g, '').trim()); } catch (error) { plan = { raw: outputText, secondary_image_prompts: [], a_plus_content_prompts: [], compliance_checklist: [] }; }\nconst slots = [\n  { slot: '01-main-image', file_name: '01-main-image.png', slot_name: 'Main Image', prompt: plan.main_image_prompt || '' },\n  ...(plan.secondary_image_prompts || []).map(p => ({ slot: p.slot, file_name: `${p.slot}.png`, slot_name: p.title || p.slot, prompt: p.prompt || '', image_text_copy: p.image_text_copy || [] }))\n];\nconst items = [];\nfor (const slot of slots) {\n  for (const version of ['A', 'B']) {\n    items.push({ json: { ...product, prompt_plan: plan, slot: slot.slot, slot_name: slot.slot_name, final_file_name: slot.file_name, version, image_prompt: slot.prompt, image_text_copy: slot.image_text_copy || [] } });\n  }\n}\nreturn items;"
+      },
+      "id": "build-slot-versions",
+      "name": "Build 7 Slots x A/B Versions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, -20]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.IMAGE_API_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"sku\": $json.sku,\n  \"slot\": $json.slot,\n  \"version\": $json.version,\n  \"prompt\": $json.image_prompt,\n  \"reference_images\": $json.reference_images,\n  \"size\": \"2000x2000\",\n  \"format\": \"png\",\n  \"negative_prompt\": \"competitor logos, website, email, phone number, QR code, social handle, extra products, incorrect product quantity, misspelled text\"\n}",
+        "options": {}
+      },
+      "id": "generate-image",
+      "name": "Generate Image Version",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1020, -20]
+    },
+    {
+      "parameters": {
+        "jsCode": "const slot = $('Build 7 Slots x A/B Versions').item.json;\nconst imageUrl = $json.image_url || $json.url || $json.data?.[0]?.url || $json.output?.[0] || '';\nif (!imageUrl) throw new Error('Image API response must include image_url, url, data[0].url, or output[0]');\nreturn [{ json: { ...slot, generated_image_url: imageUrl, generation_response: $json } }];"
+      },
+      "id": "extract-image-url",
+      "name": "Extract Generated Image URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1240, -20]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.generated_image_url}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-generated-image",
+      "name": "Download Generated Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1460, -20]
+    },
+    {
+      "parameters": {
+        "name": "={{$json.sku + '-' + $json.slot + '-' + $json.version + '.png'}}",
+        "driveId": "myDrive",
+        "folderId": "={{$json.drive_folder_id}}",
+        "options": {}
+      },
+      "id": "upload-generated-image",
+      "name": "Upload Generated Image to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1680, -20],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_DRIVE_CREDENTIAL",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Extract Generated Image URL').item.json;\nreturn [{ json: { ...meta, drive_file_id: $json.id, drive_file_url: $json.webViewLink || $json.webUrl || meta.generated_image_url } }];"
+      },
+      "id": "attach-drive-file",
+      "name": "Attach Drive File Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1900, -20]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": $env.OPENAI_VISION_MODEL || \"gpt-4.1\",\n  \"input\": [{\n    \"role\": \"user\",\n    \"content\": [\n      {\"type\":\"input_text\",\"text\":\"Inspect this generated Amazon listing image for compliance. Return strict JSON only. Product and slot data: \" + JSON.stringify($json)},\n      {\"type\":\"input_image\",\"image_url\": $json.generated_image_url}\n    ]\n  }]\n}",
+        "options": {}
+      },
+      "id": "qa-vision-check",
+      "name": "AI Vision QA Compliance Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2120, -20],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_OPENAI_CREDENTIAL",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Attach Drive File Metadata').item.json;\nconst text = $json.output_text || $json.output?.flatMap(o => o.content || []).map(c => c.text).filter(Boolean).join('\\n') || JSON.stringify($json);\nlet qa;\ntry { qa = JSON.parse(text.replace(/^```json\\s*|```$/g, '').trim()); } catch (error) { qa = { status: 'needs_manual_review', summary: text }; }\nreturn [{ json: { ...meta, qa, qa_status: qa.status || 'needs_manual_review', qa_findings: qa.summary || JSON.stringify(qa) } }];"
+      },
+      "id": "extract-qa",
+      "name": "Extract QA Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2340, -20]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "={{$env.GOOGLE_SHEET_ID}}",
+        "sheetName": "image_assets",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "job_id": "={{$json.job_id}}",
+            "sku": "={{$json.sku}}",
+            "slot": "={{$json.slot}}",
+            "slot_name": "={{$json.slot_name}}",
+            "version": "={{$json.version}}",
+            "status": "pending_approval",
+            "prompt": "={{$json.image_prompt}}",
+            "generated_image_url": "={{$json.generated_image_url}}",
+            "drive_file_id": "={{$json.drive_file_id}}",
+            "drive_file_url": "={{$json.drive_file_url}}",
+            "qa_status": "={{$json.qa_status}}",
+            "qa_findings": "={{$json.qa_findings}}",
+            "updated_at": "={{new Date().toISOString()}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "append-asset-row",
+      "name": "Append Asset Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [2560, -20],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_SHEETS_CREDENTIAL",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.FEISHU_BOT_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"msg_type\": \"interactive\",\n  \"card\": {\n    \"config\": {\"wide_screen_mode\": true},\n    \"header\": {\n      \"template\": $json.qa_status === \"pass\" ? \"green\" : \"orange\",\n      \"title\": {\"tag\": \"plain_text\", \"content\": \"Amazon 图片审批：\" + $json.sku + \" / \" + $json.slot + \" / \" + $json.version}\n    },\n    \"elements\": [\n      {\"tag\": \"div\", \"text\": {\"tag\": \"lark_md\", \"content\": \"**SKU**：\" + $json.sku + \"\\n**图片位置**：\" + $json.slot + \"\\n**版本**：\" + $json.version + \"\\n**QA**：\" + $json.qa_status + \"\\n**检查结果**：\" + ($json.qa_findings || \"\")}},\n      {\"tag\": \"div\", \"text\": {\"tag\": \"lark_md\", \"content\": \"[打开图片](\" + $json.drive_file_url + \")\"}},\n      {\"tag\": \"hr\"},\n      {\"tag\": \"action\", \"actions\": [\n        {\"tag\": \"button\", \"text\": {\"tag\": \"plain_text\", \"content\": \"批准 A\"}, \"type\": \"primary\", \"url\": $env.N8N_WEBHOOK_BASE_URL + \"/webhook/amazon-image-approval?sku=\" + encodeURIComponent($json.sku) + \"&slot=\" + encodeURIComponent($json.slot) + \"&action=A\"},\n        {\"tag\": \"button\", \"text\": {\"tag\": \"plain_text\", \"content\": \"批准 B\"}, \"type\": \"primary\", \"url\": $env.N8N_WEBHOOK_BASE_URL + \"/webhook/amazon-image-approval?sku=\" + encodeURIComponent($json.sku) + \"&slot=\" + encodeURIComponent($json.slot) + \"&action=B\"},\n        {\"tag\": \"button\", \"text\": {\"tag\": \"plain_text\", \"content\": \"重新生成\"}, \"type\": \"danger\", \"url\": $env.N8N_WEBHOOK_BASE_URL + \"/webhook/amazon-image-approval?sku=\" + encodeURIComponent($json.sku) + \"&slot=\" + encodeURIComponent($json.slot) + \"&action=R\"}\n      ]}\n    ]\n  }\n}",
+        "options": {}
+      },
+      "id": "feishu-send-approval",
+      "name": "Send Feishu Approval Card",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2780, -20]
+    }
+  ],
+  "connections": {
+    "Webhook Submit Product": {"main": [[{"node": "Normalize Product Input", "type": "main", "index": 0}]]},
+    "Form Submit Product": {"main": [[{"node": "Normalize Product Input", "type": "main", "index": 0}]]},
+    "Normalize Product Input": {"main": [[{"node": "Create SKU Folder", "type": "main", "index": 0}]]},
+    "Create SKU Folder": {"main": [[{"node": "Attach Folder Metadata", "type": "main", "index": 0}]]},
+    "Attach Folder Metadata": {"main": [[{"node": "Append Job Row", "type": "main", "index": 0}]]},
+    "Append Job Row": {"main": [[{"node": "AI Vision Analyze Reference Images", "type": "main", "index": 0}]]},
+    "AI Vision Analyze Reference Images": {"main": [[{"node": "Extract Reference Analysis", "type": "main", "index": 0}]]},
+    "Extract Reference Analysis": {"main": [[{"node": "AI Text Generate Prompt Plan", "type": "main", "index": 0}]]},
+    "AI Text Generate Prompt Plan": {"main": [[{"node": "Build 7 Slots x A/B Versions", "type": "main", "index": 0}]]},
+    "Build 7 Slots x A/B Versions": {"main": [[{"node": "Generate Image Version", "type": "main", "index": 0}]]},
+    "Generate Image Version": {"main": [[{"node": "Extract Generated Image URL", "type": "main", "index": 0}]]},
+    "Extract Generated Image URL": {"main": [[{"node": "Download Generated Image", "type": "main", "index": 0}]]},
+    "Download Generated Image": {"main": [[{"node": "Upload Generated Image to Drive", "type": "main", "index": 0}]]},
+    "Upload Generated Image to Drive": {"main": [[{"node": "Attach Drive File Metadata", "type": "main", "index": 0}]]},
+    "Attach Drive File Metadata": {"main": [[{"node": "AI Vision QA Compliance Check", "type": "main", "index": 0}]]},
+    "AI Vision QA Compliance Check": {"main": [[{"node": "Extract QA Result", "type": "main", "index": 0}]]},
+    "Extract QA Result": {"main": [[{"node": "Append Asset Row", "type": "main", "index": 0}]]},
+    "Append Asset Row": {"main": [[{"node": "Send Feishu Approval Card", "type": "main", "index": 0}]]},
+    "Send Feishu Approval Card": {"main": [[]]}
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "amazon-image-production-v1"
+}

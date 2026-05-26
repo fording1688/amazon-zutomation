@@ -1,0 +1,280 @@
+{
+  "name": "Amazon Image Production - Feishu Approval Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "amazon-image-approval",
+        "httpMethod": "GET",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "approval-webhook",
+      "name": "Feishu Button Approval Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-900, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const query = $json.query || $json;\nconst sku = String(query.sku || '').trim();\nconst slot = String(query.slot || '').trim();\nconst action = String(query.action || '').trim().toUpperCase();\nconst valid = Boolean(sku && slot && ['A', 'B', 'R'].includes(action));\nreturn [{ json: { valid, sku, slot, action, error: valid ? '' : 'Missing or invalid sku, slot, action. Use action=A, B, or R.' } }];"
+      },
+      "id": "parse-approval",
+      "name": "Parse Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-680, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.valid}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "is-valid-approval",
+      "name": "Valid Approval?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-460, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Invalid approval link. Missing or invalid sku, slot, action.",
+        "options": {}
+      },
+      "id": "respond-invalid",
+      "name": "Respond Invalid Link",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-220, 180]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.action}}",
+              "operation": "equals",
+              "value2": "R"
+            }
+          ]
+        }
+      },
+      "id": "is-regenerate",
+      "name": "Regenerate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-220, -80]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "={{$env.GOOGLE_SHEET_ID}}",
+        "sheetName": "image_assets",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sku": "={{$json.sku}}",
+            "slot": "={{$json.slot}}",
+            "version": "R",
+            "status": "regenerate_requested",
+            "qa_findings": "Manual Feishu approval requested regeneration",
+            "updated_at": "={{new Date().toISOString()}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "append-regenerate-request",
+      "name": "Append Regenerate Request",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [40, -220],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_SHEETS_CREDENTIAL",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.FEISHU_BOT_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"msg_type\": \"text\",\n  \"content\": {\"text\": \"已收到重新生成请求：\" + $json.sku + \" / \" + $json.slot}\n}",
+        "options": {}
+      },
+      "id": "notify-regenerate",
+      "name": "Notify Feishu Regenerate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [280, -220]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Regeneration requested. You can close this page.",
+        "options": {}
+      },
+      "id": "respond-regenerate",
+      "name": "Respond Regenerate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [520, -220]
+    },
+    {
+      "parameters": {
+        "documentId": "={{$env.GOOGLE_SHEET_ID}}",
+        "sheetName": "image_assets",
+        "options": {}
+      },
+      "id": "read-asset-rows",
+      "name": "Read Asset Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [40, 20],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_SHEETS_CREDENTIAL",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const approval = $('Parse Approval').first().json;\nconst rows = $input.all().map(item => item.json);\nconst match = rows.reverse().find(row => String(row.sku).trim() === approval.sku && String(row.slot).trim() === approval.slot && String(row.version).trim().toUpperCase() === approval.action);\nif (!match) {\n  throw new Error(`No generated asset row found for ${approval.sku}|${approval.slot}|${approval.action}`);\n}\nconst finalNames = {\n  '01-main-image': '01-main-image.png',\n  '02-whats-included': '02-whats-included.png',\n  '03-features': '03-features.png',\n  '04-how-to-use': '04-how-to-use.png',\n  '05-size-spec': '05-size-spec.png',\n  '06-lifestyle': '06-lifestyle.png',\n  '07-brand-bulk-support': '07-brand-bulk-support.png'\n};\nreturn [{ json: { ...approval, ...match, approved_file_name: finalNames[approval.slot] || `${approval.slot}.png`, approved_version: approval.action } }];"
+      },
+      "id": "find-approved-asset",
+      "name": "Find Approved Asset Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [280, 20]
+    },
+    {
+      "parameters": {
+        "operation": "copy",
+        "fileId": "={{$json.drive_file_id}}",
+        "name": "={{$json.approved_file_name}}",
+        "options": {}
+      },
+      "id": "copy-approved-final",
+      "name": "Copy Approved Image as Final Name",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [520, 20],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_DRIVE_CREDENTIAL",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const approved = $('Find Approved Asset Row').first().json;\nreturn [{ json: { ...approved, approved_file_id: $json.id, approved_file_url: $json.webViewLink || $json.webUrl || approved.drive_file_url } }];"
+      },
+      "id": "attach-approved-file",
+      "name": "Attach Approved File Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 20]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "={{$env.GOOGLE_SHEET_ID}}",
+        "sheetName": "image_assets",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "job_id": "={{$json.job_id}}",
+            "sku": "={{$json.sku}}",
+            "slot": "={{$json.slot}}",
+            "version": "={{$json.approved_version}}",
+            "status": "approved_final",
+            "drive_file_id": "={{$json.approved_file_id}}",
+            "drive_file_url": "={{$json.approved_file_url}}",
+            "approved_file_name": "={{$json.approved_file_name}}",
+            "approved_file_url": "={{$json.approved_file_url}}",
+            "updated_at": "={{new Date().toISOString()}}"
+          }
+        },
+        "options": {}
+      },
+      "id": "append-approved-row",
+      "name": "Append Approved Final Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1000, 20],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_SHEETS_CREDENTIAL",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.FEISHU_BOT_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"msg_type\": \"text\",\n  \"content\": {\"text\": \"已批准：\" + $json.sku + \" / \" + $json.slot + \" / 版本 \" + $json.approved_version + \"\\n最终文件：\" + $json.approved_file_name + \"\\n\" + $json.approved_file_url}\n}",
+        "options": {}
+      },
+      "id": "notify-approved",
+      "name": "Notify Feishu Approved",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1240, 20]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Approved. Final image saved. You can close this page.",
+        "options": {}
+      },
+      "id": "respond-approved",
+      "name": "Respond Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1480, 20]
+    }
+  ],
+  "connections": {
+    "Feishu Button Approval Webhook": {"main": [[{"node": "Parse Approval", "type": "main", "index": 0}]]},
+    "Parse Approval": {"main": [[{"node": "Valid Approval?", "type": "main", "index": 0}]]},
+    "Valid Approval?": {
+      "main": [
+        [{"node": "Regenerate?", "type": "main", "index": 0}],
+        [{"node": "Respond Invalid Link", "type": "main", "index": 0}]
+      ]
+    },
+    "Regenerate?": {
+      "main": [
+        [{"node": "Append Regenerate Request", "type": "main", "index": 0}],
+        [{"node": "Read Asset Rows", "type": "main", "index": 0}]
+      ]
+    },
+    "Append Regenerate Request": {"main": [[{"node": "Notify Feishu Regenerate", "type": "main", "index": 0}]]},
+    "Notify Feishu Regenerate": {"main": [[{"node": "Respond Regenerate", "type": "main", "index": 0}]]},
+    "Read Asset Rows": {"main": [[{"node": "Find Approved Asset Row", "type": "main", "index": 0}]]},
+    "Find Approved Asset Row": {"main": [[{"node": "Copy Approved Image as Final Name", "type": "main", "index": 0}]]},
+    "Copy Approved Image as Final Name": {"main": [[{"node": "Attach Approved File Metadata", "type": "main", "index": 0}]]},
+    "Attach Approved File Metadata": {"main": [[{"node": "Append Approved Final Row", "type": "main", "index": 0}]]},
+    "Append Approved Final Row": {"main": [[{"node": "Notify Feishu Approved", "type": "main", "index": 0}]]},
+    "Notify Feishu Approved": {"main": [[{"node": "Respond Approved", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "amazon-image-feishu-approval-v1"
+}
